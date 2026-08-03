@@ -438,7 +438,6 @@ private final class HUDCanvasView: NSView {
     private var tourBoxConnected = false
     private var statusText = "等待 TourBox"
     private var style: HUDStyle
-    private var pulseTimer: Timer?
     private var hoverTrackingArea: NSTrackingArea?
     private var reportedHoverSlotIndex: Int?
     private var animationsEnabled = true
@@ -471,23 +470,17 @@ private final class HUDCanvasView: NSView {
 
     required init?(coder: NSCoder) { nil }
 
-    isolated deinit {
-        pulseTimer?.invalidate()
-    }
-
     func setStyle(_ style: HUDStyle) {
         self.style = style
         if style != .glassLights { reportHoverSlot(nil) }
         glassLightsView.isHidden = style != .glassLights
         updateTrackingAreas()
-        updatePulseTimer()
         needsDisplay = true
     }
 
     func setAnimationsEnabled(_ enabled: Bool) {
         animationsEnabled = enabled
         glassLightsView.setAnimationsEnabled(enabled)
-        updatePulseTimer()
         needsDisplay = true
     }
 
@@ -506,7 +499,6 @@ private final class HUDCanvasView: NSView {
             selectedSlotIndex: selectedSlotIndex,
             animationsEnabled: animationsEnabled
         )
-        updatePulseTimer()
         updateAccessibilityLabel()
         window?.invalidateCursorRects(for: self)
         needsDisplay = true
@@ -576,11 +568,6 @@ private final class HUDCanvasView: NSView {
         reportedHoverSlotIndex = index
         needsDisplay = true
         onHoverSlotChanged?(index)
-    }
-
-    private func updatePulseTimer() {
-        pulseTimer?.invalidate()
-        pulseTimer = nil
     }
 
     override func layout() {
