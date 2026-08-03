@@ -1,0 +1,28 @@
+name: Feature request
+description: Suggest an improvement or new hardware integration
+title: "[Feature]: "
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What workflow is difficult today?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+      description: Describe the desired interaction and why it fits TourBox Micro.
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Hardware and software context
+      placeholder: TourBox Elite, Console 5.2.6, macOS 14.6
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered

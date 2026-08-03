@@ -1,0 +1,429 @@
+import AppKit
+import TourBoxCore
+
+@MainActor
+final class AppDelegate: NSObject, NSApplicationDelegate {
+    private let repository = ThreadRepository()
+    private let statusStore = StatusStore()
+    private let codexController = CodexController()
+    private var hudStyle = PreferencesStore.loadHUDStyle()
+    private var hudHoverDetailsEnabled = PreferencesStore.loadHUDHoverDetails()
+    private var hudStatusNotificationsEnabled = PreferencesStore.loadHUDStatusNotifications()
+    private var hudAnimationsEnabled = PreferencesStore.loadHUDAnimations()
+    private lazy var hud: HUDController = {
+        let controller = HUDController(
+            style: hudStyle,
+            hoverDetailsEnabled: hudHoverDetailsEnabled,
+            statusNotificationsEnabled: hudStatusNotificationsEnabled,
+            animationsEnabled: hudAnimationsEnabled
+        )
+        controller.onOpenSlot = { [weak self] index in self?.openSlot(index) }
+        return controller
+    }()
+    private var mappingConfiguration = PreferencesStore.loadMapping()
+    private lazy var router = InputRouter(configuration: mappingConfiguration)
+    private var slotMode = PreferencesStore.loadSlotMode()
+    private var resolver = SlotResolver(slotCount: 6)
+    private let rolloutMonitor = RolloutActivityMonitor(
+        reconciler: RolloutStateReconciler(maximumThreads: 120)
+    )
+    private let rolloutPresentationMonitor = RolloutPresentationMonitor(
+        reader: RolloutPresentationReader(maximumThreads: 120)
+    )
+    private var latestRolloutMessages: [String: String] = [:]
+    private var slots: [AgentSlot] = (1...6).map { AgentSlot(index: $0, thread: nil, state: .off) }
+    private var recentThreads: [CodexThread] = []
+    private var activeSlotIndex: Int?
+    private var tourBoxConnected = false
+    private var tourBoxServerListening = false
+    private var hookServerListening = false
+    private var connectionStatus = "等待 TourBox"
+    private var refreshTimer: Timer?
+    private var didStartRolloutReconciliation = false
+    private var rolloutReconciliationInFlight = false
+    private var tourBoxServer: TourBoxServer?
+    private var hookServer: HookServer?
+    private var statusItem: NSStatusItem?
+    private var connectionMenuItem: NSMenuItem?
+    private var hudMenuItem: NSMenuItem?
+    private var settingsWindowController: SettingsWindowController?
+
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        NSApp.setActivationPolicy(.regular)
+        configureMenuBar()
+        if PreferencesStore.loadHUDVisible() {
+            hud.show()
+        }
+        updateHUDMenuTitle()
+        startServers()
+        refreshThreads()
+        if CommandLine.arguments.contains("--settings") {
+            DispatchQueue.main.async { [weak self] in self?.openSettings() }
+        }
+        refreshTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.refreshThreads() }
+        }
+    }
+
+    func applicationShouldHandleReopen(
+        _ sender: NSApplication,
+        hasVisibleWindows flag: Bool
+    ) -> Bool {
+        if !flag { openSettings() }
+        return true
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        refreshTimer?.invalidate()
+        tourBoxServer?.stop()
+        hookServer?.stop()
+        codexController.releaseHeldKeys()
+    }
+
+    private func startServers() {
+        let tourBoxServer = TourBoxServer(
+            onEvent: { [weak self] event in self?.handle(event) },
+            onConnection: { [weak self] connected, error in
+                self?.tourBoxConnected = connected
+                self?.connectionStatus = error.map { "TourBox：\($0)" } ?? (connected ? "TourBox 已连接" : "等待 TourBox")
+                self?.render()
+            }
+        )
+        self.tourBoxServer = tourBoxServer
+        do {
+            try tourBoxServer.start()
+            tourBoxServerListening = true
+        } catch {
+            tourBoxServerListening = false
+            connectionStatus = "Port 50500: \(error.localizedDescription)"
+        }
+
+        let hookServer = HookServer(
+            onSignal: { [weak self] signal in
+                self?.statusStore.apply(signal)
+                self?.resolveSlots()
+            },
+            onError: { [weak self] error in
+                self?.connectionStatus = "Hook server: \(error)"
+                self?.render()
+            }
+        )
+        self.hookServer = hookServer
+        do {
+            try hookServer.start()
+            hookServerListening = true
+        } catch {
+            hookServerListening = false
+            connectionStatus = "Port 50501: \(error.localizedDescription)"
+        }
+        render()
+    }
+
+    private func refreshThreads() {
+        do {
+            recentThreads = try repository.loadRecentThreads(limit: 200)
+            resolveSlots()
+            startRolloutReconciliationIfNeeded()
+        } catch {
+            connectionStatus = "Codex state: \(error.localizedDescription)"
+            render()
+        }
+    }
+
+    private func startRolloutReconciliationIfNeeded() {
+        guard !rolloutReconciliationInFlight else { return }
+        let force = !didStartRolloutReconciliation
+        didStartRolloutReconciliation = true
+        rolloutReconciliationInFlight = true
+        let threads = recentThreads
+        let monitor = rolloutMonitor
+        let presentationMonitor = rolloutPresentationMonitor
+        Task { [weak self] in
+            let result = await Task.detached(priority: .utility) {
+                let lifecycle = monitor.changedSnapshots(for: threads, force: force)
+                let presentation = presentationMonitor.changedSnapshots(for: threads, force: force)
+                return (lifecycle, presentation)
+            }.value
+            guard let self else { return }
+            rolloutReconciliationInFlight = false
+            statusStore.reconcile(result.0)
+            for snapshot in result.1 {
+                latestRolloutMessages[snapshot.threadID] = snapshot.latestMessage
+            }
+            if !result.0.isEmpty || !result.1.isEmpty { resolveSlots() }
+        }
+    }
+
+    private func resolveSlots() {
+        slots = resolver.resolve(
+            threads: recentThreads,
+            activities: statusStore.activities,
+            mode: slotMode
+        ).map { slot in
+            AgentSlot(
+                index: slot.index,
+                thread: slot.thread,
+                state: slot.state,
+                detail: slot.detail,
+                latestMessage: slot.thread.flatMap { latestRolloutMessages[$0.id] }
+            )
+        }
+        render()
+    }
+
+    private func handle(_ event: TourBoxEvent) {
+        for action in router.route(event) {
+            handle(action)
+        }
+    }
+
+    private func handle(_ action: MicroAction) {
+        switch action {
+        case .openSlot(let index):
+            openSlot(index)
+        case .previousChat:
+            cycleSlot(direction: -1)
+        case .nextChat:
+            cycleSlot(direction: 1)
+        case .toggleHUD:
+            hud.toggle()
+            PreferencesStore.saveHUDVisible(hud.isVisible)
+            updateHUDMenuTitle()
+            render()
+        default:
+            codexController.perform(action)
+        }
+    }
+
+    private func openSlot(_ index: Int) {
+        guard let slot = slots.first(where: { $0.index == index }), let thread = slot.thread else {
+            NSSound.beep()
+            return
+        }
+        activeSlotIndex = index
+        statusStore.acknowledge(thread)
+        codexController.openThread(thread)
+        resolveSlots()
+    }
+
+    private func cycleSlot(direction: Int) {
+        let assigned = slots.filter { $0.thread != nil }.map(\.index)
+        guard !assigned.isEmpty else { return }
+        let currentPosition = activeSlotIndex.flatMap { assigned.firstIndex(of: $0) } ?? (direction > 0 ? -1 : 0)
+        let nextPosition = (currentPosition + direction + assigned.count) % assigned.count
+        openSlot(assigned[nextPosition])
+    }
+
+    private func render() {
+        hud.update(
+            slots: slots,
+            selectedSlotIndex: activeSlotIndex,
+            tourBoxConnected: tourBoxConnected,
+            statusText: connectionStatus
+        )
+        connectionMenuItem?.title = connectionStatus
+        settingsWindowController?.model.updateRuntime(
+            tourBoxConnected: tourBoxConnected,
+            connectionStatus: connectionStatus,
+            assignedSlotCount: slots.filter { $0.thread != nil }.count,
+            hudVisible: hud.isVisible,
+            tourBoxServerListening: tourBoxServerListening,
+            hookServerListening: hookServerListening,
+            statusPersistenceReady: statusStore.persistenceAvailable,
+            statusPersistenceDetail: statusStore.persistenceDetail
+        )
+    }
+
+    private func configureMenuBar() {
+        let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+        self.statusItem = statusItem
+        let menuBarImage = NSImage(
+            systemSymbolName: "dial.medium",
+            accessibilityDescription: "TourBox Micro"
+        )
+        menuBarImage?.isTemplate = true
+        statusItem.button?.image = menuBarImage
+        statusItem.button?.contentTintColor = nil
+
+        let menu = NSMenu()
+        let connectionItem = NSMenuItem(title: connectionStatus, action: nil, keyEquivalent: "")
+        connectionItem.isEnabled = false
+        connectionMenuItem = connectionItem
+        menu.addItem(connectionItem)
+        menu.addItem(.separator())
+
+        let hudItem = NSMenuItem(title: "隐藏六任务 HUD", action: #selector(toggleHUD), keyEquivalent: "h")
+        hudItem.target = self
+        hudMenuItem = hudItem
+        menu.addItem(hudItem)
+
+        let settingsItem = NSMenuItem(title: "设置…", action: #selector(openSettings), keyEquivalent: ",")
+        settingsItem.target = self
+        menu.addItem(settingsItem)
+
+        let resetHUDItem = NSMenuItem(title: "重置 HUD 尺寸与位置", action: #selector(resetHUD), keyEquivalent: "")
+        resetHUDItem.target = self
+        menu.addItem(resetHUDItem)
+
+        let openItem = NSMenuItem(title: "打开 Codex", action: #selector(openCodex), keyEquivalent: "o")
+        openItem.target = self
+        menu.addItem(openItem)
+
+        let integrationItem = NSMenuItem(title: "安装 Codex Hooks 与基础快捷键…", action: #selector(installIntegration), keyEquivalent: "")
+        integrationItem.target = self
+        menu.addItem(integrationItem)
+
+        let accessibilityItem = NSMenuItem(title: "授予辅助功能权限…", action: #selector(requestAccessibility), keyEquivalent: "")
+        accessibilityItem.target = self
+        menu.addItem(accessibilityItem)
+        menu.addItem(.separator())
+
+        let quitItem = NSMenuItem(title: "退出 TourBox Micro", action: #selector(quit), keyEquivalent: "q")
+        quitItem.target = self
+        menu.addItem(quitItem)
+        statusItem.menu = menu
+    }
+
+    private func updateHUDMenuTitle() {
+        hudMenuItem?.title = hud.isVisible ? "隐藏六任务 HUD" : "显示六任务 HUD"
+    }
+
+    @objc private func toggleHUD() {
+        hud.toggle()
+        PreferencesStore.saveHUDVisible(hud.isVisible)
+        updateHUDMenuTitle()
+        render()
+    }
+
+    @objc private func resetHUD() {
+        hud.resetPosition()
+        hud.show()
+        PreferencesStore.saveHUDVisible(true)
+        updateHUDMenuTitle()
+        render()
+    }
+
+    @objc private func openSettings() {
+        if settingsWindowController == nil {
+            let callbacks = SettingsCallbacks(
+                setHUDVisible: { [weak self] visible in
+                    guard let self else { return }
+                    if visible != self.hud.isVisible {
+                        visible ? self.hud.show() : self.hud.hide()
+                    }
+                    PreferencesStore.saveHUDVisible(visible)
+                    self.updateHUDMenuTitle()
+                    self.render()
+                },
+                setHUDStyle: { [weak self] style in
+                    guard let self else { return }
+                    self.hudStyle = style
+                    PreferencesStore.saveHUDStyle(style)
+                    self.hud.setStyle(style)
+                    self.render()
+                },
+                setHUDHoverDetails: { [weak self] enabled in
+                    guard let self else { return }
+                    self.hudHoverDetailsEnabled = enabled
+                    PreferencesStore.saveHUDHoverDetails(enabled)
+                    self.hud.setHoverDetailsEnabled(enabled)
+                },
+                setHUDStatusNotifications: { [weak self] enabled in
+                    guard let self else { return }
+                    self.hudStatusNotificationsEnabled = enabled
+                    PreferencesStore.saveHUDStatusNotifications(enabled)
+                    self.hud.setStatusNotificationsEnabled(enabled)
+                },
+                setHUDAnimations: { [weak self] enabled in
+                    guard let self else { return }
+                    self.hudAnimationsEnabled = enabled
+                    PreferencesStore.saveHUDAnimations(enabled)
+                    self.hud.setAnimationsEnabled(enabled)
+                },
+                setSlotMode: { [weak self] mode in
+                    guard let self else { return }
+                    self.slotMode = mode
+                    PreferencesStore.saveSlotMode(mode)
+                    self.resolveSlots()
+                },
+                setMapping: { [weak self] mapping in
+                    guard let self else { return }
+                    self.mappingConfiguration = mapping
+                    self.router.updateConfiguration(mapping)
+                    PreferencesStore.saveMapping(mapping)
+                },
+                openCodex: { [weak self] in self?.codexController.openCodex() },
+                installIntegration: { [weak self] in
+                    guard let self else { return "App 正在退出。" }
+                    return try self.performInstallIntegration()
+                },
+                requestAccessibility: { [weak self] in self?.codexController.requestAccessibilityAccess() }
+            )
+            let model = SettingsModel(
+                hudVisible: hud.isVisible,
+                hudStyle: hudStyle,
+                hudHoverDetailsEnabled: hudHoverDetailsEnabled,
+                hudStatusNotificationsEnabled: hudStatusNotificationsEnabled,
+                hudAnimationsEnabled: hudAnimationsEnabled,
+                slotMode: slotMode,
+                mapping: mappingConfiguration,
+                callbacks: callbacks
+            )
+            settingsWindowController = SettingsWindowController(model: model)
+        }
+        render()
+        settingsWindowController?.show()
+    }
+
+    @objc private func openCodex() {
+        codexController.openCodex()
+    }
+
+    @objc private func requestAccessibility() {
+        codexController.requestAccessibilityAccess()
+    }
+
+    @objc private func installIntegration() {
+        do {
+            showAlert(
+                title: "Codex integration installed",
+                message: try performInstallIntegration()
+            )
+        } catch {
+            showAlert(title: "Installation failed", message: error.localizedDescription)
+        }
+    }
+
+    private func performInstallIntegration() throws -> String {
+        let codexDirectory = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".codex")
+        let hooks = try ConfigurationInstaller.installHooks(at: codexDirectory.appendingPathComponent("hooks.json"))
+        let keys = try ConfigurationInstaller.installKeybindings(at: codexDirectory.appendingPathComponent("keybindings.json"))
+        let backups = [hooks.backupPath, keys.backupPath].compactMap { $0 }
+        let backupText = backups.isEmpty ? "本次无需创建备份。" : "备份：\n\(backups.joined(separator: "\n"))"
+        return """
+        Hooks 与基础快捷键已安装，现有设置已保留。重启 Codex，并在提示时检查并信任 Hooks。
+
+        推理旋钮需要人工绑定一次：
+        1. 打开 Codex 设置 → 键盘快捷键
+        2. 搜索“推理”或“effort”
+        3. 录制“增加推理强度”时向右转旋钮一格（F16）
+        4. 录制“降低推理强度”时向左转旋钮一格（F17）
+
+        \(backupText)
+        """
+    }
+
+    private func showAlert(title: String, message: String) {
+        let alert = NSAlert()
+        alert.messageText = title
+        alert.informativeText = message
+        alert.alertStyle = .informational
+        alert.addButton(withTitle: "OK")
+        NSApp.activate(ignoringOtherApps: true)
+        alert.runModal()
+    }
+
+    @objc private func quit() {
+        NSApp.terminate(nil)
+    }
+}

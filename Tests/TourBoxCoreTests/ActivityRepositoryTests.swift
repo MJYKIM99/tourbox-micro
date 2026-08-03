@@ -1,0 +1,145 @@
+import Foundation
+import Testing
+@testable import TourBoxCore
+
+@Test func persistsLatestTaskStateAcrossRepositoryInstances() throws {
+    let directory = FileManager.default.temporaryDirectory
+        .appendingPathComponent("tourbox-status-tests-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let databaseURL = directory.appendingPathComponent("status.sqlite3")
+    let startedAt = Date(timeIntervalSince1970: 1_800_000_000)
+
+    do {
+        let repository = try ActivityRepository(databaseURL: databaseURL)
+        try repository.upsert(
+            AgentActivity(
+                threadID: "thread-1",
+                cwd: "/project",
+                state: .thinking,
+                updatedAt: startedAt,
+                detail: "running"
+            )
+        )
+    }
+
+    let reopened = try ActivityRepository(databaseURL: databaseURL)
+    let restored = try reopened.loadActivities()
+    #expect(restored.count == 1)
+    #expect(restored.first?.threadID == "thread-1")
+    #expect(restored.first?.state == .thinking)
+    #expect(restored.first?.detail == "running")
+}
+
+@Test func ignoresOlderLifecycleWritesAndAcknowledgesOnlyCompletion() throws {
+    let directory = FileManager.default.temporaryDirectory
+        .appendingPathComponent("tourbox-status-order-tests-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let repository = try ActivityRepository(databaseURL: directory.appendingPathComponent("status.sqlite3"))
+    let newer = Date(timeIntervalSince1970: 1_800_000_100)
+    let older = Date(timeIntervalSince1970: 1_800_000_000)
+
+    try repository.upsert(
+        AgentActivity(threadID: "thread-1", cwd: "/project", state: .complete, updatedAt: newer)
+    )
+    let changed = try repository.upsert(
+        AgentActivity(threadID: "thread-1", cwd: "/project", state: .thinking, updatedAt: older)
+    )
+    #expect(changed == false)
+    #expect(try repository.loadActivities().first?.state == .complete)
+
+    let thread = CodexThread(
+        id: "thread-1",
+        title: "Task",
+        cwd: "/project",
+        recencyAtMilliseconds: 1
+    )
+    try repository.acknowledgeCompletion(for: thread, at: newer.addingTimeInterval(1))
+    #expect(try repository.loadActivities().first?.state == .idle)
+}
+
+@Test func recoversLatestLifecycleEdgeFromRolloutTail() throws {
+    let directory = FileManager.default.temporaryDirectory
+        .appendingPathComponent("tourbox-rollout-tests-\(UUID().uuidString)")
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+
+    let activeURL = directory.appendingPathComponent("active.jsonl")
+    let completeURL = directory.appendingPathComponent("complete.jsonl")
+    try """
+        {"timestamp":"2026-08-03T05:00:00.000Z","type":"event_msg","payload":{"type":"task_complete"}}
+        {"timestamp":"2026-08-03T05:01:00.000Z","type":"event_msg","payload":{"type":"task_started"}}
+        """.write(to: activeURL, atomically: true, encoding: .utf8)
+    try """
+        {"timestamp":"2026-08-03T05:00:00.000Z","type":"event_msg","payload":{"type":"task_started"}}
+        {"timestamp":"2026-08-03T05:01:00.000Z","type":"event_msg","payload":{"type":"task_complete"}}
+        """.write(to: completeURL, atomically: true, encoding: .utf8)
+
+    let active = CodexThread(
+        id: "active",
+        title: "Active",
+        cwd: "/active",
+        recencyAtMilliseconds: 2,
+        rolloutPath: activeURL.path
+    )
+    let complete = CodexThread(
+        id: "complete",
+        title: "Complete",
+        cwd: "/complete",
+        recencyAtMilliseconds: 1,
+        rolloutPath: completeURL.path
+    )
+    let snapshots = RolloutStateReconciler(
+        maximumRecoverableActiveAge: 1_000_000_000
+    ).snapshots(for: [active, complete])
+    #expect(snapshots.first(where: { $0.threadID == "active" })?.state == .thinking)
+    #expect(snapshots.first(where: { $0.threadID == "complete" })?.state == .complete)
+}
+
+@Test func expiresOnlyStaleThinkingRows() throws {
+    let directory = FileManager.default.temporaryDirectory
+        .appendingPathComponent("tourbox-status-expiry-tests-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let repository = try ActivityRepository(databaseURL: directory.appendingPathComponent("status.sqlite3"))
+    let old = Date(timeIntervalSince1970: 1_700_000_000)
+    try repository.upsert(AgentActivity(threadID: "old-run", state: .thinking, updatedAt: old))
+    try repository.upsert(AgentActivity(threadID: "old-input", state: .needsInput, updatedAt: old))
+
+    let expired = try repository.expireThinking(
+        before: Date(timeIntervalSince1970: 1_700_000_100),
+        at: Date(timeIntervalSince1970: 1_700_000_200)
+    )
+    let restored = try repository.loadActivities()
+    #expect(expired == 1)
+    #expect(restored.first(where: { $0.threadID == "old-run" })?.state == .idle)
+    #expect(restored.first(where: { $0.threadID == "old-input" })?.state == .needsInput)
+}
+
+@Test func rolloutMonitorParsesOnlyChangedFiles() throws {
+    let directory = FileManager.default.temporaryDirectory
+        .appendingPathComponent("tourbox-rollout-monitor-tests-\(UUID().uuidString)")
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let rolloutURL = directory.appendingPathComponent("active.jsonl")
+    let started = """
+        {"timestamp":"2026-08-03T05:00:00.000Z","type":"event_msg","payload":{"type":"task_started"}}
+        """
+    try started.write(to: rolloutURL, atomically: true, encoding: .utf8)
+    let thread = CodexThread(
+        id: "active",
+        title: "Active",
+        cwd: "/active",
+        recencyAtMilliseconds: 1,
+        rolloutPath: rolloutURL.path
+    )
+    let monitor = RolloutActivityMonitor(
+        reconciler: RolloutStateReconciler(maximumRecoverableActiveAge: 1_000_000_000)
+    )
+
+    #expect(monitor.changedSnapshots(for: [thread], force: true).count == 1)
+    #expect(monitor.changedSnapshots(for: [thread]).isEmpty)
+    let handle = try FileHandle(forWritingTo: rolloutURL)
+    try handle.seekToEnd()
+    try handle.write(contentsOf: Data("\n{\"type\":\"event_msg\",\"payload\":{\"type\":\"agent_message\"}}\n".utf8))
+    try handle.close()
+    #expect(monitor.changedSnapshots(for: [thread]).count == 1)
+}
