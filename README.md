@@ -14,6 +14,7 @@
 
 <p align="center">
   <a href="https://github.com/MJYKIM99/tourbox-micro/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/MJYKIM99/tourbox-micro/actions/workflows/ci.yml/badge.svg"></a>
+  <a href="https://github.com/MJYKIM99/tourbox-micro/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/MJYKIM99/tourbox-micro?display_name=tag&sort=semver"></a>
   <img alt="macOS 14+" src="https://img.shields.io/badge/macOS-14%2B-111111?logo=apple">
   <img alt="Swift 6" src="https://img.shields.io/badge/Swift-6-F05138?logo=swift&logoColor=white">
   <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/license-MIT-2F855A"></a>
@@ -27,8 +28,14 @@ lifecycle persistence in one small menu-bar app.
 
 > [!IMPORTANT]
 > TourBox Micro is an independent public beta. It is not affiliated with or
-> endorsed by TourBox Tech or OpenAI. Version **0.7.2 (Build 15)** is tested
+> endorsed by TourBox Tech or OpenAI. Version **0.8.0 (Build 16)** is tested
 > with TourBox Elite, TourBox Console 5.2.6, and macOS 14 or later.
+
+<p align="center">
+  <img src="Docs/Images/glass-lights-hud.jpg" width="322" alt="Six independent glass status lights showing completed and running Codex tasks">
+</p>
+
+<p align="center"><sub>Independent state-colored glass lights: no enclosing background plate and no continuous idle animation.</sub></p>
 
 ## Highlights
 
@@ -42,6 +49,7 @@ lifecycle persistence in one small menu-bar app.
 | True push-to-talk | Short press starts voice input and release stops it using real press/release events |
 | Local state recovery | SQLite persistence plus bounded rollout-tail recovery after relaunch |
 | Native settings and diagnostics | Configure mappings, HUD behavior, launch at login, permissions, and integrations |
+| Energy-aware runtime | Native SQLite, bounded background reconciliation, deduplicated rendering, and no hidden-window animation |
 
 ## How it works
 
@@ -180,20 +188,37 @@ Choose between two HUD styles in Settings:
 |---|---|---|
 | Gray | Unassigned or inactive | Still |
 | White | Assigned and idle | Still |
-| Blue | Codex is running | Directional shimmer inside the rounded light core |
+| Blue | Codex is running | Still state illumination |
 | Green | Completed | One rounded status-transition burst |
-| Amber | Waiting for confirmation or input | Slow breathing |
+| Amber | Waiting for confirmation or input | Still attention color |
 | Red | Error | One restrained shake on transition |
 
 Hover a light to see the task title, project folder, state, and latest visible
 assistant update. Click the light or hover card to open that task in Codex.
-Animations respect macOS Reduce Motion and can also be disabled in Settings.
+One-shot transition and hover feedback respects macOS Reduce Motion and can
+also be disabled in Settings. State illumination remains visible either way.
 
 Slot ordering is deterministic:
 
 - **Priority** puts input requests, errors, unread completions, and running work first.
 - **Recent** follows Codex recency while preserving a stable assignment when possible.
 - **Pinned** favors pinned Codex tasks before filling remaining slots by recency.
+
+## Performance
+
+Version 0.8.0 moves recurring Codex database and rollout work off the main
+actor, coalesces refreshes, skips unchanged HUD renders, and destroys hidden
+window trees instead of leaving them alive. The six lights share one masked
+native glass plane and use static state illumination instead of continuous
+per-light shimmer or breathing timelines.
+
+During manual diagnosis on an Apple M5 Pro MacBook Pro with a visible six-light
+HUD and several active tasks, 15 one-second process samples averaged **1.21% app
+CPU** after the change. The continuously animated implementations observed
+during the investigation averaged between **6.08% and 14.64%**. This is a
+workload-specific diagnostic result rather than a portable benchmark; task mix,
+display refresh rate, macOS, and hardware affect the result. The implementation
+and measurement notes are documented in [Docs/PERFORMANCE.md](Docs/PERFORMANCE.md).
 
 ## Local data and privacy
 
@@ -239,6 +264,11 @@ swift test
 # Open Settings directly
 open "/Applications/TourBox Micro.app" --args --settings
 ```
+
+Releases are currently source-only. The project does not publish development-
+signed or unnotarized application bundles. See
+[Docs/RELEASING.md](Docs/RELEASING.md) for the release checklist and the binary
+distribution requirements.
 
 The test suite covers protocol decoding, modifier routing, configurable
 mappings, configuration merging, persistence, rollout recovery, display-text
