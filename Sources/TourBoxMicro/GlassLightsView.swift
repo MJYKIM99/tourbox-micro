@@ -1,6 +1,5 @@
 import AppKit
 import Pow
-import Shimmer
 import SwiftUI
 import TourBoxCore
 
@@ -33,14 +32,28 @@ final class GlassLightsHostingView: NSView {
 
     required init?(coder: NSCoder) { nil }
 
-    func update(slots: [AgentSlot], selectedSlotIndex: Int?, animationsEnabled: Bool) {
-        model.slots = slots
-        model.selectedSlotIndex = selectedSlotIndex
-        model.animationsEnabled = animationsEnabled
+    func update(
+        slots: [AgentSlot],
+        selectedSlotIndex: Int?,
+        animationsEnabled: Bool,
+        isVisible: Bool
+    ) {
+        if model.slots != slots { model.slots = slots }
+        if model.selectedSlotIndex != selectedSlotIndex {
+            model.selectedSlotIndex = selectedSlotIndex
+        }
+        if model.animationsEnabled != animationsEnabled {
+            model.animationsEnabled = animationsEnabled
+        }
+        if model.isVisible != isVisible { model.isVisible = isVisible }
     }
 
     func setAnimationsEnabled(_ enabled: Bool) {
-        model.animationsEnabled = enabled
+        if model.animationsEnabled != enabled { model.animationsEnabled = enabled }
+    }
+
+    func setVisible(_ visible: Bool) {
+        if model.isVisible != visible { model.isVisible = visible }
     }
 }
 
@@ -49,6 +62,7 @@ private final class GlassLightsModel: ObservableObject {
     @Published var slots: [AgentSlot] = []
     @Published var selectedSlotIndex: Int?
     @Published var animationsEnabled = true
+    @Published var isVisible = false
 
     var onHoverSlotChanged: ((Int?) -> Void)?
     var onOpenSlot: ((Int) -> Void)?
@@ -57,6 +71,11 @@ private final class GlassLightsModel: ObservableObject {
 @MainActor
 private struct GlassLightsView: View {
     @ObservedObject var model: GlassLightsModel
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    private var animationsAreEnabled: Bool {
+        model.animationsEnabled && model.isVisible && !reduceMotion
+    }
 
     var body: some View {
         HStack(spacing: 8) {
@@ -69,7 +88,7 @@ private struct GlassLightsView: View {
                     GlassLight(
                         slot: slot,
                         selected: model.selectedSlotIndex == index,
-                        animationsEnabled: model.animationsEnabled,
+                        animationIsActive: animationsAreEnabled,
                         onHoverChanged: { hovering in
                             model.onHoverSlotChanged?(hovering ? index : nil)
                         }
@@ -105,10 +124,9 @@ private struct GlassLightsView: View {
 private struct GlassLight: View {
     let slot: AgentSlot
     let selected: Bool
-    let animationsEnabled: Bool
+    let animationIsActive: Bool
     let onHoverChanged: (Bool) -> Void
 
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var hovering = false
 
     private var assigned: Bool { slot.thread != nil }
@@ -124,17 +142,8 @@ private struct GlassLight: View {
         }
     }
 
-    private var animationIsActive: Bool { animationsEnabled && !reduceMotion }
-    private var shouldBreathe: Bool {
-        animationIsActive && assigned && slot.state == .needsInput
-    }
-
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: !shouldBreathe)) { timeline in
-            let phase = timeline.date.timeIntervalSinceReferenceDate * 2.1
-            let breath = shouldBreathe ? (sin(phase) + 1) / 2 : 0.35
-            lightBody(breath: breath)
-        }
+        lightBody
         .changeEffect(
             .pulse(
                 shape: RoundedRectangle(cornerRadius: 11, style: .continuous),
@@ -157,21 +166,19 @@ private struct GlassLight: View {
         }
     }
 
-    @ViewBuilder
-    private func lightBody(breath: Double) -> some View {
+    private var lightBody: some View {
         let outerShape = RoundedRectangle(cornerRadius: 11, style: .continuous)
         let innerShape = RoundedRectangle(cornerRadius: 8, style: .continuous)
         let coreShape = RoundedRectangle(cornerRadius: 7, style: .continuous)
-        let breathingAmount = shouldBreathe ? breath : 0.30
 
-        ZStack {
+        return ZStack {
             outerShape
-                .fill(.ultraThinMaterial)
+                .fill(Color.black.opacity(assigned ? 0.14 : 0.28))
                 .overlay {
-                    outerShape.fill(Color.black.opacity(assigned ? 0.20 : 0.32))
+                    outerShape.fill(Color.white.opacity(assigned ? 0.055 : 0.025))
                 }
                 .overlay {
-                    outerShape.fill(color.opacity(assigned ? 0.12 : 0.035))
+                    outerShape.fill(color.opacity(assigned ? 0.24 : 0.035))
                 }
 
             innerShape
@@ -179,7 +186,7 @@ private struct GlassLight: View {
                     LinearGradient(
                         colors: [
                             Color.white.opacity(assigned ? 0.11 : 0.055),
-                            color.opacity(assigned ? 0.08 : 0.025),
+                            color.opacity(assigned ? 0.20 : 0.025),
                             Color.black.opacity(0.16)
                         ],
                         startPoint: .topLeading,
@@ -202,8 +209,8 @@ private struct GlassLight: View {
                 .fill(
                     LinearGradient(
                         colors: [
-                            Color.white.opacity(assigned ? 0.36 : 0.13),
-                            color.opacity(assigned ? 0.88 : 0.20)
+                            Color.white.opacity(assigned ? 0.20 : 0.13),
+                            color.opacity(assigned ? 1.00 : 0.20)
                         ],
                         startPoint: .top,
                         endPoint: .bottom
@@ -220,29 +227,10 @@ private struct GlassLight: View {
                     )
                 }
                 .frame(width: 26, height: 26)
-                .scaleEffect(shouldBreathe ? CGFloat(0.99 + 0.025 * breath) : 1)
                 .shadow(
-                    color: color.opacity(assigned ? 0.27 + 0.16 * breathingAmount : 0.08),
-                    radius: assigned ? 4.5 + 1.5 * breathingAmount : 1.5
+                    color: color.opacity(assigned ? 0.34 : 0.08),
+                    radius: assigned ? 5 : 1.5
                 )
-
-            if assigned && slot.state == .thinking {
-                coreShape
-                    .fill(Color.white.opacity(0.72))
-                    .frame(width: 26, height: 26)
-                    .shimmering(
-                        active: animationIsActive,
-                        animation: .linear(duration: 1.8)
-                            .delay(0.30)
-                            .repeatForever(autoreverses: false),
-                        gradient: Gradient(colors: [.clear, .white, .clear]),
-                        bandSize: 0.14,
-                        mode: .mask
-                    )
-                    .clipShape(coreShape)
-                    .blendMode(.screen)
-                    .allowsHitTesting(false)
-            }
 
             Capsule()
                 .fill(

@@ -3,33 +3,28 @@ import TourBoxCore
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    private enum RefreshPolicy {
+        static let threadInterval: TimeInterval = 5
+        static let rolloutInterval: TimeInterval = 15
+        static let timerTolerance: TimeInterval = 1
+    }
+
     private let repository = ThreadRepository()
     private let statusStore = StatusStore()
     private let codexController = CodexController()
     private var hudStyle = PreferencesStore.loadHUDStyle()
+    private var hudVisible = PreferencesStore.loadHUDVisible()
     private var hudHoverDetailsEnabled = PreferencesStore.loadHUDHoverDetails()
     private var hudStatusNotificationsEnabled = PreferencesStore.loadHUDStatusNotifications()
     private var hudAnimationsEnabled = PreferencesStore.loadHUDAnimations()
-    private lazy var hud: HUDController = {
-        let controller = HUDController(
-            style: hudStyle,
-            hoverDetailsEnabled: hudHoverDetailsEnabled,
-            statusNotificationsEnabled: hudStatusNotificationsEnabled,
-            animationsEnabled: hudAnimationsEnabled
-        )
-        controller.onOpenSlot = { [weak self] index in self?.openSlot(index) }
-        return controller
-    }()
+    private var hudController: HUDController?
     private var mappingConfiguration = PreferencesStore.loadMapping()
     private lazy var router = InputRouter(configuration: mappingConfiguration)
     private var slotMode = PreferencesStore.loadSlotMode()
     private var resolver = SlotResolver(slotCount: 6)
-    private let rolloutMonitor = RolloutActivityMonitor(
-        reconciler: RolloutStateReconciler(maximumThreads: 120)
-    )
-    private let rolloutPresentationMonitor = RolloutPresentationMonitor(
-        reader: RolloutPresentationReader(maximumThreads: 120)
-    )
+    private let rolloutChangeMonitor = RolloutChangeMonitor(maximumThreads: 120)
+    private let rolloutReconciler = RolloutStateReconciler(maximumThreads: 120)
+    private let rolloutPresentationReader = RolloutPresentationReader(maximumThreads: 120)
     private var latestRolloutMessages: [String: String] = [:]
     private var slots: [AgentSlot] = (1...6).map { AgentSlot(index: $0, thread: nil, state: .off) }
     private var recentThreads: [CodexThread] = []
@@ -39,20 +34,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var hookServerListening = false
     private var connectionStatus = "等待 TourBox"
     private var refreshTimer: Timer?
+    private var threadRefreshInFlight = false
+    private var threadRefreshPending = false
     private var didStartRolloutReconciliation = false
     private var rolloutReconciliationInFlight = false
+    private var lastRolloutReconciliationAt: Date?
     private var tourBoxServer: TourBoxServer?
     private var hookServer: HookServer?
     private var statusItem: NSStatusItem?
     private var connectionMenuItem: NSMenuItem?
     private var hudMenuItem: NSMenuItem?
     private var settingsWindowController: SettingsWindowController?
+    private var lastHUDRenderState: HUDRenderState?
+
+    private struct HUDRenderState: Equatable {
+        let slots: [AgentSlot]
+        let selectedSlotIndex: Int?
+        let tourBoxConnected: Bool
+        let statusText: String
+    }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
         configureMenuBar()
-        if PreferencesStore.loadHUDVisible() {
-            hud.show()
+        if hudVisible {
+            makeHUDIfNeeded().show()
         }
         updateHUDMenuTitle()
         startServers()
@@ -60,9 +66,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if CommandLine.arguments.contains("--settings") {
             DispatchQueue.main.async { [weak self] in self?.openSettings() }
         }
-        refreshTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
+        let refreshTimer = Timer(timeInterval: RefreshPolicy.threadInterval, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.refreshThreads() }
         }
+        refreshTimer.tolerance = RefreshPolicy.timerTolerance
+        RunLoop.main.add(refreshTimer, forMode: .common)
+        self.refreshTimer = refreshTimer
     }
 
     func applicationShouldHandleReopen(
@@ -77,6 +86,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         refreshTimer?.invalidate()
         tourBoxServer?.stop()
         hookServer?.stop()
+        hudController?.hide()
         codexController.releaseHeldKeys()
     }
 
@@ -120,42 +130,89 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func refreshThreads() {
-        do {
-            recentThreads = try repository.loadRecentThreads(limit: 200)
-            resolveSlots()
-            startRolloutReconciliationIfNeeded()
-        } catch {
-            connectionStatus = "Codex state: \(error.localizedDescription)"
-            render()
+        guard !threadRefreshInFlight else {
+            threadRefreshPending = true
+            return
+        }
+        threadRefreshInFlight = true
+        let repository = repository
+
+        Task { [weak self] in
+            let result = await Task.detached(priority: .utility) {
+                do {
+                    return (
+                        threads: Optional(try repository.loadRecentThreads(limit: 200)),
+                        error: nil as String?
+                    )
+                } catch {
+                    return (threads: nil, error: error.localizedDescription)
+                }
+            }.value
+            guard let self else { return }
+            threadRefreshInFlight = false
+
+            if let threads = result.threads {
+                if threads != recentThreads {
+                    recentThreads = threads
+                    resolveSlots()
+                }
+                startRolloutReconciliationIfNeeded()
+            } else if let error = result.error {
+                let message = "Codex state: \(error)"
+                if connectionStatus != message {
+                    connectionStatus = message
+                    render()
+                }
+            }
+
+            if threadRefreshPending {
+                threadRefreshPending = false
+                refreshThreads()
+            }
         }
     }
 
     private func startRolloutReconciliationIfNeeded() {
         guard !rolloutReconciliationInFlight else { return }
         let force = !didStartRolloutReconciliation
+        if !force,
+           let lastRolloutReconciliationAt,
+           Date().timeIntervalSince(lastRolloutReconciliationAt) < RefreshPolicy.rolloutInterval {
+            return
+        }
         didStartRolloutReconciliation = true
         rolloutReconciliationInFlight = true
+        lastRolloutReconciliationAt = Date()
         let threads = recentThreads
-        let monitor = rolloutMonitor
-        let presentationMonitor = rolloutPresentationMonitor
+        let changeMonitor = rolloutChangeMonitor
+        let reconciler = rolloutReconciler
+        let presentationReader = rolloutPresentationReader
         Task { [weak self] in
             let result = await Task.detached(priority: .utility) {
-                let lifecycle = monitor.changedSnapshots(for: threads, force: force)
-                let presentation = presentationMonitor.changedSnapshots(for: threads, force: force)
+                let changedThreads = changeMonitor.changedThreads(for: threads, force: force)
+                let lifecycle = reconciler.snapshots(for: changedThreads)
+                let presentation = presentationReader.snapshots(for: changedThreads)
                 return (lifecycle, presentation)
             }.value
             guard let self else { return }
             rolloutReconciliationInFlight = false
+            let previousActivities = statusStore.activities
             statusStore.reconcile(result.0)
+            var presentationChanged = false
             for snapshot in result.1 {
-                latestRolloutMessages[snapshot.threadID] = snapshot.latestMessage
+                if latestRolloutMessages[snapshot.threadID] != snapshot.latestMessage {
+                    latestRolloutMessages[snapshot.threadID] = snapshot.latestMessage
+                    presentationChanged = true
+                }
             }
-            if !result.0.isEmpty || !result.1.isEmpty { resolveSlots() }
+            if previousActivities != statusStore.activities || presentationChanged {
+                resolveSlots()
+            }
         }
     }
 
     private func resolveSlots() {
-        slots = resolver.resolve(
+        let resolvedSlots = resolver.resolve(
             threads: recentThreads,
             activities: statusStore.activities,
             mode: slotMode
@@ -168,6 +225,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 latestMessage: slot.thread.flatMap { latestRolloutMessages[$0.id] }
             )
         }
+        guard resolvedSlots != slots else { return }
+        slots = resolvedSlots
         render()
     }
 
@@ -186,10 +245,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         case .nextChat:
             cycleSlot(direction: 1)
         case .toggleHUD:
-            hud.toggle()
-            PreferencesStore.saveHUDVisible(hud.isVisible)
-            updateHUDMenuTitle()
-            render()
+            setHUDVisible(!hudVisible)
         default:
             codexController.perform(action)
         }
@@ -215,23 +271,54 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func render() {
-        hud.update(
+        let hudState = HUDRenderState(
             slots: slots,
             selectedSlotIndex: activeSlotIndex,
             tourBoxConnected: tourBoxConnected,
             statusText: connectionStatus
         )
-        connectionMenuItem?.title = connectionStatus
-        settingsWindowController?.model.updateRuntime(
+        if hudVisible, hudState != lastHUDRenderState {
+            makeHUDIfNeeded().update(
+                slots: hudState.slots,
+                selectedSlotIndex: hudState.selectedSlotIndex,
+                tourBoxConnected: hudState.tourBoxConnected,
+                statusText: hudState.statusText
+            )
+            lastHUDRenderState = hudState
+        }
+        if connectionMenuItem?.title != connectionStatus {
+            connectionMenuItem?.title = connectionStatus
+        }
+        if let controller = settingsWindowController,
+           controller.window?.isVisible == true {
+            updateSettingsModel(controller.model)
+        }
+    }
+
+    private func updateSettingsModel(_ model: SettingsModel) {
+        model.updateRuntime(
             tourBoxConnected: tourBoxConnected,
             connectionStatus: connectionStatus,
             assignedSlotCount: slots.filter { $0.thread != nil }.count,
-            hudVisible: hud.isVisible,
+            hudVisible: hudVisible,
             tourBoxServerListening: tourBoxServerListening,
             hookServerListening: hookServerListening,
             statusPersistenceReady: statusStore.persistenceAvailable,
             statusPersistenceDetail: statusStore.persistenceDetail
         )
+    }
+
+    private func makeHUDIfNeeded() -> HUDController {
+        if let hudController { return hudController }
+        let controller = HUDController(
+            style: hudStyle,
+            hoverDetailsEnabled: hudHoverDetailsEnabled,
+            statusNotificationsEnabled: hudStatusNotificationsEnabled,
+            animationsEnabled: hudAnimationsEnabled
+        )
+        controller.onOpenSlot = { [weak self] index in self?.openSlot(index) }
+        hudController = controller
+        return controller
     }
 
     private func configureMenuBar() {
@@ -285,19 +372,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func updateHUDMenuTitle() {
-        hudMenuItem?.title = hud.isVisible ? "隐藏六任务 HUD" : "显示六任务 HUD"
+        hudMenuItem?.title = hudVisible ? "隐藏六任务 HUD" : "显示六任务 HUD"
     }
 
     @objc private func toggleHUD() {
-        hud.toggle()
-        PreferencesStore.saveHUDVisible(hud.isVisible)
+        setHUDVisible(!hudVisible)
+    }
+
+    private func setHUDVisible(_ visible: Bool) {
+        guard visible != hudVisible else { return }
+        hudVisible = visible
+        if visible {
+            lastHUDRenderState = nil
+            let controller = makeHUDIfNeeded()
+            render()
+            controller.show()
+        } else {
+            hudController?.close()
+            hudController = nil
+            lastHUDRenderState = nil
+        }
+        PreferencesStore.saveHUDVisible(visible)
         updateHUDMenuTitle()
         render()
     }
 
     @objc private func resetHUD() {
-        hud.resetPosition()
-        hud.show()
+        hudVisible = true
+        lastHUDRenderState = nil
+        let controller = makeHUDIfNeeded()
+        render()
+        controller.resetPosition()
         PreferencesStore.saveHUDVisible(true)
         updateHUDMenuTitle()
         render()
@@ -307,41 +412,41 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if settingsWindowController == nil {
             let callbacks = SettingsCallbacks(
                 setHUDVisible: { [weak self] visible in
-                    guard let self else { return }
-                    if visible != self.hud.isVisible {
-                        visible ? self.hud.show() : self.hud.hide()
-                    }
-                    PreferencesStore.saveHUDVisible(visible)
-                    self.updateHUDMenuTitle()
-                    self.render()
+                    self?.setHUDVisible(visible)
                 },
                 setHUDStyle: { [weak self] style in
                     guard let self else { return }
+                    guard style != self.hudStyle else { return }
                     self.hudStyle = style
                     PreferencesStore.saveHUDStyle(style)
-                    self.hud.setStyle(style)
+                    self.hudController?.setStyle(style)
+                    self.lastHUDRenderState = nil
                     self.render()
                 },
                 setHUDHoverDetails: { [weak self] enabled in
                     guard let self else { return }
+                    guard enabled != self.hudHoverDetailsEnabled else { return }
                     self.hudHoverDetailsEnabled = enabled
                     PreferencesStore.saveHUDHoverDetails(enabled)
-                    self.hud.setHoverDetailsEnabled(enabled)
+                    self.hudController?.setHoverDetailsEnabled(enabled)
                 },
                 setHUDStatusNotifications: { [weak self] enabled in
                     guard let self else { return }
+                    guard enabled != self.hudStatusNotificationsEnabled else { return }
                     self.hudStatusNotificationsEnabled = enabled
                     PreferencesStore.saveHUDStatusNotifications(enabled)
-                    self.hud.setStatusNotificationsEnabled(enabled)
+                    self.hudController?.setStatusNotificationsEnabled(enabled)
                 },
                 setHUDAnimations: { [weak self] enabled in
                     guard let self else { return }
+                    guard enabled != self.hudAnimationsEnabled else { return }
                     self.hudAnimationsEnabled = enabled
                     PreferencesStore.saveHUDAnimations(enabled)
-                    self.hud.setAnimationsEnabled(enabled)
+                    self.hudController?.setAnimationsEnabled(enabled)
                 },
                 setSlotMode: { [weak self] mode in
                     guard let self else { return }
+                    guard mode != self.slotMode else { return }
                     self.slotMode = mode
                     PreferencesStore.saveSlotMode(mode)
                     self.resolveSlots()
@@ -360,7 +465,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 requestAccessibility: { [weak self] in self?.codexController.requestAccessibilityAccess() }
             )
             let model = SettingsModel(
-                hudVisible: hud.isVisible,
+                hudVisible: hudVisible,
                 hudStyle: hudStyle,
                 hudHoverDetailsEnabled: hudHoverDetailsEnabled,
                 hudStatusNotificationsEnabled: hudStatusNotificationsEnabled,
@@ -369,9 +474,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 mapping: mappingConfiguration,
                 callbacks: callbacks
             )
-            settingsWindowController = SettingsWindowController(model: model)
+            settingsWindowController = SettingsWindowController(model: model) { [weak self] in
+                self?.settingsWindowController = nil
+            }
         }
-        render()
+        if let model = settingsWindowController?.model {
+            updateSettingsModel(model)
+        }
         settingsWindowController?.show()
     }
 

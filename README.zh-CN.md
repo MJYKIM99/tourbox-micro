@@ -14,6 +14,7 @@
 
 <p align="center">
   <a href="https://github.com/MJYKIM99/tourbox-micro/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/MJYKIM99/tourbox-micro/actions/workflows/ci.yml/badge.svg"></a>
+  <a href="https://github.com/MJYKIM99/tourbox-micro/releases/latest"><img alt="最新版本" src="https://img.shields.io/github/v/release/MJYKIM99/tourbox-micro?display_name=tag&sort=semver"></a>
   <img alt="macOS 14+" src="https://img.shields.io/badge/macOS-14%2B-111111?logo=apple">
   <img alt="Swift 6" src="https://img.shields.io/badge/Swift-6-F05138?logo=swift&logoColor=white">
   <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/license-MIT-2F855A"></a>
@@ -26,8 +27,14 @@ TourBox Micro 是一个原生 macOS 桥接应用，把 TourBox Console 的 Max/M
 
 > [!IMPORTANT]
 > TourBox Micro 是独立开发的公开测试版，与 TourBox Tech 或 OpenAI 没有关联，
-> 也未获得其官方背书。版本 **0.7.2（Build 15）** 已在 TourBox Elite、
+> 也未获得其官方背书。版本 **0.8.0（Build 16）** 已在 TourBox Elite、
 > TourBox Console 5.2.6 和 macOS 14 或更高版本上测试。
+
+<p align="center">
+  <img src="Docs/Images/glass-lights-hud.jpg" width="322" alt="六个独立玻璃状态灯，显示已完成和运行中的 Codex 任务">
+</p>
+
+<p align="center"><sub>独立状态色玻璃灯：没有包围整排灯的背景底板，也没有持续空转的装饰动画。</sub></p>
 
 ## 核心能力
 
@@ -41,6 +48,7 @@ TourBox Micro 是一个原生 macOS 桥接应用，把 TourBox Console 的 Max/M
 | 真正的按住说话 | Short 按下开始、松开停止，保留真实 press/release 语义 |
 | 本地状态恢复 | SQLite 持久化，并在重启后从 rollout 文件的有限尾部恢复状态 |
 | 原生设置与诊断 | 配置按键、HUD、登录启动、权限和 Codex 集成 |
+| 能耗友好的运行时 | 原生 SQLite、有限后台对账、去重渲染，并在窗口隐藏时停止 UI 工作 |
 
 ## 工作原理
 
@@ -173,20 +181,32 @@ python3 Scripts/generate-tourbox-preset.py \
 |---|---|---|
 | 灰色 | 未分配或未激活 | 静止 |
 | 白色 | 已分配、空闲 | 静止 |
-| 蓝色 | Codex 正在运行 | 圆角光芯内部的方向扫光 |
+| 蓝色 | Codex 正在运行 | 静态状态光 |
 | 绿色 | 已完成 | 状态切换时触发一次圆角扩散 |
-| 琥珀色 | 等待确认或输入 | 慢呼吸 |
+| 琥珀色 | 等待确认或输入 | 静态注意色 |
 | 红色 | 任务错误 | 状态切换时触发一次克制的抖动 |
 
 悬停在灯上可以查看任务标题、项目文件夹、当前状态和最近一条可见 assistant
 进展。点击灯或悬浮卡片会在 Codex 中打开对应任务。动画遵循 macOS
-“减少动态效果”设置，也可以在应用设置中关闭。
+“减少动态效果”设置，也可以在应用设置中关闭；无论是否开启动画，状态色都会保留。
 
 槽位排序是确定性的：
 
 - **优先级**：需要输入、错误、未读完成和运行中任务优先。
 - **最近使用**：按照 Codex 的最近使用时间排序，并尽量保持原槽位。
 - **置顶**：优先放置 Codex 中置顶的任务，其余槽位按最近使用时间填充。
+
+## 性能
+
+v0.8.0 把周期性的 Codex 数据库查询和 rollout 读取移出主线程，合并重叠刷新，
+跳过内容没有变化的 HUD 渲染，并在窗口隐藏后释放整棵窗口与 SwiftUI 视图树。
+六盏灯共享一个带独立灯形遮罩的原生玻璃层，以静态状态光替代逐灯持续扫光和呼吸。
+
+在 Apple M5 Pro MacBook Pro 上进行现场诊断时，保持六灯 HUD 可见并运行多个任务，
+连续 15 次、每秒一次的进程采样平均为 **1.21% App CPU**；调查期间持续动画版本
+的平均值在 **6.08%–14.64%**。这是特定工作负载下的诊断结果，不是跨设备通用
+跑分；任务组合、显示器刷新率、macOS 和硬件都会影响结果。实现与测量说明见
+[Docs/PERFORMANCE.md](Docs/PERFORMANCE.md)。
 
 ## 本地数据与隐私
 
@@ -229,6 +249,9 @@ swift test
 # 直接打开设置页
 open "/Applications/TourBox Micro.app" --args --settings
 ```
+
+当前 Release 只发布源码，不分发开发签名或未经 Apple 公证的应用包。发布清单与
+二进制分发要求见 [Docs/RELEASING.md](Docs/RELEASING.md)。
 
 测试覆盖协议解码、修饰层路由、可配置映射、配置合并、状态持久化、rollout
 恢复、显示文本清理、槽位排序和状态变化反馈。

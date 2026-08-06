@@ -12,7 +12,6 @@ let package = Package(
         .executable(name: "TourBoxMicro", targets: ["TourBoxMicro"])
     ],
     dependencies: [
-        .package(url: "https://github.com/markiv/SwiftUI-Shimmer", from: "1.5.1"),
         .package(url: "https://github.com/EmergeTools/Pow", from: "1.0.6")
     ],
     targets: [
@@ -26,7 +25,6 @@ let package = Package(
             name: "TourBoxMicro",
             dependencies: [
                 "TourBoxCore",
-                .product(name: "Shimmer", package: "SwiftUI-Shimmer"),
                 .product(name: "Pow", package: "Pow")
             ]
         ),

@@ -143,3 +143,44 @@ import Testing
     try handle.close()
     #expect(monitor.changedSnapshots(for: [thread]).count == 1)
 }
+
+@Test func rolloutChangeMonitorSharesOneBoundedFileScan() throws {
+    let directory = FileManager.default.temporaryDirectory
+        .appendingPathComponent("tourbox-rollout-shared-monitor-tests-\(UUID().uuidString)")
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+
+    let firstURL = directory.appendingPathComponent("first.jsonl")
+    let secondURL = directory.appendingPathComponent("second.jsonl")
+    try "{\"type\":\"event_msg\",\"payload\":{\"type\":\"task_started\"}}\n"
+        .write(to: firstURL, atomically: true, encoding: .utf8)
+    try "{\"type\":\"event_msg\",\"payload\":{\"type\":\"task_started\"}}\n"
+        .write(to: secondURL, atomically: true, encoding: .utf8)
+
+    let threads = [
+        CodexThread(
+            id: "first",
+            title: "First",
+            cwd: "/first",
+            recencyAtMilliseconds: 2,
+            rolloutPath: firstURL.path
+        ),
+        CodexThread(
+            id: "second",
+            title: "Second",
+            cwd: "/second",
+            recencyAtMilliseconds: 1,
+            rolloutPath: secondURL.path
+        )
+    ]
+    let monitor = RolloutChangeMonitor(maximumThreads: 1)
+
+    #expect(monitor.changedThreads(for: threads, force: true).map(\.id) == ["first"])
+    #expect(monitor.changedThreads(for: threads).isEmpty)
+
+    let handle = try FileHandle(forWritingTo: firstURL)
+    try handle.seekToEnd()
+    try handle.write(contentsOf: Data("changed".utf8))
+    try handle.close()
+    #expect(monitor.changedThreads(for: threads).map(\.id) == ["first"])
+}
