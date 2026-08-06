@@ -8,6 +8,7 @@ final class HUDController {
     private static let taskPeekSize = NSSize(width: 448, height: 142)
     private let screenMargin: CGFloat = 18
     private let panel: NSPanel
+    private let panelContentView: NSView
     private let glassView: NSVisualEffectView
     private let contentView: HUDCanvasView
     private let peekPanel: NSPanel
@@ -46,6 +47,7 @@ final class HUDController {
             frame: NSRect(origin: .zero, size: size),
             style: style
         )
+        panelContentView = NSView(frame: NSRect(origin: .zero, size: size))
         glassView = NSVisualEffectView(frame: NSRect(origin: .zero, size: size))
         panel = NSPanel(
             contentRect: NSRect(origin: .zero, size: size),
@@ -66,7 +68,7 @@ final class HUDController {
         panel.level = .floating
         panel.isOpaque = false
         panel.backgroundColor = .clear
-        panel.hasShadow = true
+        panel.hasShadow = style == .taskList
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
         panel.hidesOnDeactivate = false
         panel.isMovableByWindowBackground = true
@@ -80,12 +82,16 @@ final class HUDController {
         glassView.isEmphasized = true
         glassView.wantsLayer = true
         glassView.layer?.cornerCurve = .continuous
-        glassView.layer?.cornerRadius = Self.cornerRadius(for: style)
+        glassView.layer?.cornerRadius = style == .taskList ? Self.cornerRadius(for: style) : 0
         glassView.layer?.masksToBounds = true
         glassView.autoresizingMask = [.width, .height]
         contentView.autoresizingMask = [.width, .height]
-        glassView.addSubview(contentView)
-        panel.contentView = glassView
+        glassView.maskImage = style == .glassLights ? Self.glassLightsMask(size: size) : nil
+        panelContentView.wantsLayer = true
+        panelContentView.layer?.backgroundColor = NSColor.clear.cgColor
+        panelContentView.addSubview(glassView)
+        panelContentView.addSubview(contentView)
+        panel.contentView = panelContentView
 
         peekPanel.level = .floating
         peekPanel.isOpaque = false
@@ -258,6 +264,39 @@ final class HUDController {
 
     private var currentSize: NSSize { Self.size(for: style) }
 
+    private func updatePanelAppearance() {
+        switch style {
+        case .glassLights:
+            glassView.maskImage = Self.glassLightsMask(size: currentSize)
+            glassView.layer?.cornerRadius = 0
+            panel.hasShadow = false
+        case .taskList:
+            glassView.maskImage = nil
+            glassView.layer?.cornerRadius = Self.cornerRadius(for: style)
+            panel.hasShadow = true
+        }
+    }
+
+    private static func glassLightsMask(size: NSSize) -> NSImage {
+        NSImage(size: size, flipped: false) { _ in
+            NSColor.white.setFill()
+            let cellSize: CGFloat = 44
+            let gap: CGFloat = 8
+            let startX: CGFloat = 9
+            let y = (size.height - cellSize) / 2
+            for index in 0..<6 {
+                let rect = NSRect(
+                    x: startX + CGFloat(index) * (cellSize + gap),
+                    y: y,
+                    width: cellSize,
+                    height: cellSize
+                )
+                NSBezierPath(roundedRect: rect, xRadius: 11, yRadius: 11).fill()
+            }
+            return true
+        }
+    }
+
     private func applySizeAndPosition() {
         let size = currentSize
         panel.minSize = .zero
@@ -269,15 +308,18 @@ final class HUDController {
         panel.maxSize = size
         panel.contentMinSize = size
         panel.contentMaxSize = size
+        panelContentView.frame = NSRect(origin: .zero, size: size)
         glassView.frame = NSRect(origin: .zero, size: size)
-        glassView.layer?.cornerRadius = Self.cornerRadius(for: style)
         contentView.frame = NSRect(origin: .zero, size: size)
+        updatePanelAppearance()
         positionAtAnchor()
     }
 
     private func positionAtAnchor() {
         guard let visibleFrame = NSScreen.main?.visibleFrame else { return }
         panel.setFrame(frameAtAnchor(in: visibleFrame), display: true)
+        panelContentView.frame = NSRect(origin: .zero, size: currentSize)
+        glassView.frame = panelContentView.bounds
         contentView.frame = NSRect(origin: .zero, size: currentSize)
         if peekPanel.isVisible { positionPeekPanel() }
     }
@@ -313,6 +355,8 @@ final class HUDController {
 
         if sizeWasChanged {
             panel.setFrame(frameAtAnchor(in: visibleFrame), display: true)
+            panelContentView.frame = NSRect(origin: .zero, size: size)
+            glassView.frame = panelContentView.bounds
             contentView.frame = NSRect(origin: .zero, size: size)
             return
         }
