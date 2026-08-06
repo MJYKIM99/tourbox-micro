@@ -19,8 +19,8 @@ struct SettingsCallbacks {
 
 @MainActor
 final class SettingsModel: ObservableObject {
-    struct DiagnosticItem: Identifiable {
-        enum State {
+    struct DiagnosticItem: Identifiable, Equatable {
+        enum State: Equatable {
             case ready
             case actionRequired
             case inactive
@@ -33,6 +33,25 @@ final class SettingsModel: ObservableObject {
         let state: State
     }
 
+    private struct RuntimeState: Equatable {
+        var tourBoxConnected = false
+        var connectionStatus = "等待 TourBox"
+        var assignedSlotCount = 0
+        var tourBoxServerListening = false
+        var hookServerListening = false
+        var statusPersistenceReady = false
+        var statusPersistenceDetail = "等待状态数据库"
+    }
+
+    private struct SystemDiagnosticState: Equatable {
+        var codexFound = false
+        var databaseFound = false
+        var accessibilityTrusted = false
+        var hooksInstalled = false
+        var keysInstalled = false
+        var reasoningKeysInstalled = false
+    }
+
     @Published var hudVisible: Bool
     @Published var hudStyle: HUDStyle
     @Published var hudHoverDetailsEnabled: Bool
@@ -40,15 +59,9 @@ final class SettingsModel: ObservableObject {
     @Published var hudAnimationsEnabled: Bool
     @Published var slotMode: SlotMode
     @Published var mapping: InputMappingConfiguration
-    @Published var tourBoxConnected = false
-    @Published var connectionStatus = "等待 TourBox"
-    @Published var assignedSlotCount = 0
-    @Published var tourBoxServerListening = false
-    @Published var hookServerListening = false
-    @Published var statusPersistenceReady = false
-    @Published var statusPersistenceDetail = "等待状态数据库"
-    @Published var loginEnabled = LoginItemManager.isEnabled
-    @Published var loginStatus = LoginItemManager.statusDescription
+    @Published private var runtime = RuntimeState()
+    @Published var loginEnabled = false
+    @Published var loginStatus = "正在检查"
     @Published var diagnostics: [DiagnosticItem] = []
     @Published var noticeTitle = ""
     @Published var noticeMessage = ""
@@ -60,7 +73,16 @@ final class SettingsModel: ObservableObject {
 
     var systemReady: Bool { blockingIssueCount == 0 }
 
+    var tourBoxConnected: Bool { runtime.tourBoxConnected }
+    var connectionStatus: String { runtime.connectionStatus }
+    var assignedSlotCount: Int { runtime.assignedSlotCount }
+    var tourBoxServerListening: Bool { runtime.tourBoxServerListening }
+    var hookServerListening: Bool { runtime.hookServerListening }
+    var statusPersistenceReady: Bool { runtime.statusPersistenceReady }
+    var statusPersistenceDetail: String { runtime.statusPersistenceDetail }
+
     private let callbacks: SettingsCallbacks
+    private var systemDiagnostics = SystemDiagnosticState()
 
     init(
         hudVisible: Bool,
@@ -80,7 +102,6 @@ final class SettingsModel: ObservableObject {
         self.slotMode = slotMode
         self.mapping = mapping
         self.callbacks = callbacks
-        refreshDiagnostics()
     }
 
     func updateRuntime(
@@ -93,53 +114,71 @@ final class SettingsModel: ObservableObject {
         statusPersistenceReady: Bool,
         statusPersistenceDetail: String
     ) {
-        self.tourBoxConnected = tourBoxConnected
-        self.connectionStatus = connectionStatus
-        self.assignedSlotCount = assignedSlotCount
-        self.hudVisible = hudVisible
-        self.tourBoxServerListening = tourBoxServerListening
-        self.hookServerListening = hookServerListening
-        self.statusPersistenceReady = statusPersistenceReady
-        self.statusPersistenceDetail = statusPersistenceDetail
-        refreshDiagnostics()
+        let nextRuntime = RuntimeState(
+            tourBoxConnected: tourBoxConnected,
+            connectionStatus: connectionStatus,
+            assignedSlotCount: assignedSlotCount,
+            tourBoxServerListening: tourBoxServerListening,
+            hookServerListening: hookServerListening,
+            statusPersistenceReady: statusPersistenceReady,
+            statusPersistenceDetail: statusPersistenceDetail
+        )
+        var changed = false
+        if runtime != nextRuntime {
+            runtime = nextRuntime
+            changed = true
+        }
+        if self.hudVisible != hudVisible {
+            self.hudVisible = hudVisible
+            changed = true
+        }
+        if changed { rebuildDiagnostics() }
     }
 
     func setHUDVisible(_ visible: Bool) {
+        guard hudVisible != visible else { return }
         hudVisible = visible
         callbacks.setHUDVisible(visible)
     }
 
     func setHUDStyle(_ style: HUDStyle) {
+        guard hudStyle != style else { return }
         hudStyle = style
         callbacks.setHUDStyle(style)
     }
 
     func setHUDHoverDetails(_ enabled: Bool) {
+        guard hudHoverDetailsEnabled != enabled else { return }
         hudHoverDetailsEnabled = enabled
         callbacks.setHUDHoverDetails(enabled)
     }
 
     func setHUDStatusNotifications(_ enabled: Bool) {
+        guard hudStatusNotificationsEnabled != enabled else { return }
         hudStatusNotificationsEnabled = enabled
         callbacks.setHUDStatusNotifications(enabled)
     }
 
     func setHUDAnimations(_ enabled: Bool) {
+        guard hudAnimationsEnabled != enabled else { return }
         hudAnimationsEnabled = enabled
         callbacks.setHUDAnimations(enabled)
     }
 
     func setSlotMode(_ mode: SlotMode) {
+        guard slotMode != mode else { return }
         slotMode = mode
         callbacks.setSlotMode(mode)
     }
 
     func setAction(_ action: ButtonAction, for control: TourBoxControl) {
+        guard mapping.action(for: control) != action else { return }
         mapping.set(action, for: control)
         callbacks.setMapping(mapping)
     }
 
     func resetMapping() {
+        guard mapping != .default else { return }
         mapping = .default
         callbacks.setMapping(mapping)
     }
@@ -150,8 +189,6 @@ final class SettingsModel: ObservableObject {
         } catch {
             showNotice(title: "登录启动设置失败", message: error.localizedDescription)
         }
-        loginEnabled = LoginItemManager.isEnabled
-        loginStatus = LoginItemManager.statusDescription
         refreshDiagnostics()
     }
 
@@ -177,16 +214,22 @@ final class SettingsModel: ObservableObject {
         let codexDirectory = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".codex")
         let hooksText = (try? String(contentsOf: codexDirectory.appendingPathComponent("hooks.json"), encoding: .utf8)) ?? ""
         let keybindingsURL = codexDirectory.appendingPathComponent("keybindings.json")
-        let codexFound = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.openai.codex") != nil
-        let databaseFound = FileManager.default.fileExists(atPath: codexDirectory.appendingPathComponent("state_5.sqlite").path)
-        let accessibilityTrusted = AXIsProcessTrusted()
-        let hooksInstalled = hooksText.contains(ConfigurationInstaller.hookMarker)
-        let keysInstalled = ConfigurationInstaller.managedKeybindingsInstalled(at: keybindingsURL)
-        let reasoningKeysInstalled = ConfigurationInstaller.manualReasoningKeybindingsInstalled(at: keybindingsURL)
+        systemDiagnostics = SystemDiagnosticState(
+            codexFound: NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.openai.codex") != nil,
+            databaseFound: FileManager.default.fileExists(atPath: codexDirectory.appendingPathComponent("state_5.sqlite").path),
+            accessibilityTrusted: AXIsProcessTrusted(),
+            hooksInstalled: hooksText.contains(ConfigurationInstaller.hookMarker),
+            keysInstalled: ConfigurationInstaller.managedKeybindingsInstalled(at: keybindingsURL),
+            reasoningKeysInstalled: ConfigurationInstaller.manualReasoningKeybindingsInstalled(at: keybindingsURL)
+        )
+        let loginSnapshot = LoginItemManager.snapshot()
+        if loginEnabled != loginSnapshot.isEnabled { loginEnabled = loginSnapshot.isEnabled }
+        if loginStatus != loginSnapshot.statusDescription { loginStatus = loginSnapshot.statusDescription }
+        rebuildDiagnostics()
+    }
 
-        loginEnabled = LoginItemManager.isEnabled
-        loginStatus = LoginItemManager.statusDescription
-        diagnostics = [
+    private func rebuildDiagnostics() {
+        let nextDiagnostics: [DiagnosticItem] = [
             .init(
                 id: "tourbox",
                 title: "TourBox 输入",
@@ -204,16 +247,16 @@ final class SettingsModel: ObservableObject {
             .init(
                 id: "codex",
                 title: "Codex 桌面 App",
-                detail: codexFound ? "已找到" : "未找到",
+                detail: systemDiagnostics.codexFound ? "已找到" : "未找到",
                 symbol: "app.badge.checkmark",
-                state: codexFound ? .ready : .actionRequired
+                state: systemDiagnostics.codexFound ? .ready : .actionRequired
             ),
             .init(
                 id: "database",
                 title: "六任务索引",
-                detail: databaseFound ? "state_5.sqlite 可读" : "状态数据库缺失",
+                detail: systemDiagnostics.databaseFound ? "state_5.sqlite 可读" : "状态数据库缺失",
                 symbol: "square.stack.3d.up",
-                state: databaseFound ? .ready : .actionRequired
+                state: systemDiagnostics.databaseFound ? .ready : .actionRequired
             ),
             .init(
                 id: "status-database",
@@ -225,30 +268,30 @@ final class SettingsModel: ObservableObject {
             .init(
                 id: "hooks",
                 title: "生命周期 Hooks",
-                detail: hooksInstalled ? "4 个 Hook 已安装" : "尚未安装",
+                detail: systemDiagnostics.hooksInstalled ? "4 个 Hook 已安装" : "尚未安装",
                 symbol: "point.3.connected.trianglepath.dotted",
-                state: hooksInstalled ? .ready : .actionRequired
+                state: systemDiagnostics.hooksInstalled ? .ready : .actionRequired
             ),
             .init(
                 id: "keys",
                 title: "基础快捷键",
-                detail: keysInstalled ? "F13 · F14 · F15 已安装" : "自动映射不完整",
+                detail: systemDiagnostics.keysInstalled ? "F13 · F14 · F15 已安装" : "自动映射不完整",
                 symbol: "keyboard",
-                state: keysInstalled ? .ready : .actionRequired
+                state: systemDiagnostics.keysInstalled ? .ready : .actionRequired
             ),
             .init(
                 id: "reasoning-keys",
                 title: "推理旋钮",
-                detail: reasoningKeysInstalled ? "F16 增加 · F17 降低" : "Codex 录制时：右转=F16 · 左转=F17",
+                detail: systemDiagnostics.reasoningKeysInstalled ? "F16 增加 · F17 降低" : "Codex 录制时：右转=F16 · 左转=F17",
                 symbol: "dial.medium",
-                state: reasoningKeysInstalled ? .ready : .actionRequired
+                state: systemDiagnostics.reasoningKeysInstalled ? .ready : .actionRequired
             ),
             .init(
                 id: "accessibility",
                 title: "辅助功能权限",
-                detail: accessibilityTrusted ? "已授权" : "需要授权",
+                detail: systemDiagnostics.accessibilityTrusted ? "已授权" : "需要授权",
                 symbol: "hand.raised",
-                state: accessibilityTrusted ? .ready : .actionRequired
+                state: systemDiagnostics.accessibilityTrusted ? .ready : .actionRequired
             ),
             .init(
                 id: "login",
@@ -258,6 +301,7 @@ final class SettingsModel: ObservableObject {
                 state: loginEnabled ? .ready : .inactive
             )
         ]
+        if diagnostics != nextDiagnostics { diagnostics = nextDiagnostics }
     }
 
     private func showNotice(title: String, message: String) {

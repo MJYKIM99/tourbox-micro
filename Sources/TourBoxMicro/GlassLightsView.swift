@@ -33,14 +33,28 @@ final class GlassLightsHostingView: NSView {
 
     required init?(coder: NSCoder) { nil }
 
-    func update(slots: [AgentSlot], selectedSlotIndex: Int?, animationsEnabled: Bool) {
-        model.slots = slots
-        model.selectedSlotIndex = selectedSlotIndex
-        model.animationsEnabled = animationsEnabled
+    func update(
+        slots: [AgentSlot],
+        selectedSlotIndex: Int?,
+        animationsEnabled: Bool,
+        isVisible: Bool
+    ) {
+        if model.slots != slots { model.slots = slots }
+        if model.selectedSlotIndex != selectedSlotIndex {
+            model.selectedSlotIndex = selectedSlotIndex
+        }
+        if model.animationsEnabled != animationsEnabled {
+            model.animationsEnabled = animationsEnabled
+        }
+        if model.isVisible != isVisible { model.isVisible = isVisible }
     }
 
     func setAnimationsEnabled(_ enabled: Bool) {
-        model.animationsEnabled = enabled
+        if model.animationsEnabled != enabled { model.animationsEnabled = enabled }
+    }
+
+    func setVisible(_ visible: Bool) {
+        if model.isVisible != visible { model.isVisible = visible }
     }
 }
 
@@ -49,6 +63,7 @@ private final class GlassLightsModel: ObservableObject {
     @Published var slots: [AgentSlot] = []
     @Published var selectedSlotIndex: Int?
     @Published var animationsEnabled = true
+    @Published var isVisible = false
 
     var onHoverSlotChanged: ((Int?) -> Void)?
     var onOpenSlot: ((Int) -> Void)?
@@ -70,6 +85,7 @@ private struct GlassLightsView: View {
                         slot: slot,
                         selected: model.selectedSlotIndex == index,
                         animationsEnabled: model.animationsEnabled,
+                        isVisible: model.isVisible,
                         onHoverChanged: { hovering in
                             model.onHoverSlotChanged?(hovering ? index : nil)
                         }
@@ -106,6 +122,7 @@ private struct GlassLight: View {
     let slot: AgentSlot
     let selected: Bool
     let animationsEnabled: Bool
+    let isVisible: Bool
     let onHoverChanged: (Bool) -> Void
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -124,7 +141,7 @@ private struct GlassLight: View {
         }
     }
 
-    private var animationIsActive: Bool { animationsEnabled && !reduceMotion }
+    private var animationIsActive: Bool { animationsEnabled && isVisible && !reduceMotion }
     private var shouldBreathe: Bool {
         animationIsActive && assigned && slot.state == .needsInput
     }
@@ -166,9 +183,9 @@ private struct GlassLight: View {
 
         ZStack {
             outerShape
-                .fill(.ultraThinMaterial)
+                .fill(Color.black.opacity(assigned ? 0.18 : 0.28))
                 .overlay {
-                    outerShape.fill(Color.black.opacity(assigned ? 0.20 : 0.32))
+                    outerShape.fill(Color.white.opacity(assigned ? 0.055 : 0.025))
                 }
                 .overlay {
                     outerShape.fill(color.opacity(assigned ? 0.12 : 0.035))

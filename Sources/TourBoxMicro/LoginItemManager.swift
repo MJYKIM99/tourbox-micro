@@ -2,6 +2,11 @@ import Foundation
 import ServiceManagement
 
 enum LoginItemManager {
+    struct Snapshot: Equatable {
+        let isEnabled: Bool
+        let statusDescription: String
+    }
+
     private static let fallbackLabel = "com.yi.tourboxmicro.login"
 
     private static var fallbackURL: URL {
@@ -10,47 +15,45 @@ enum LoginItemManager {
             .appendingPathComponent("\(fallbackLabel).plist")
     }
 
-    static var status: SMAppService.Status {
-        SMAppService.mainApp.status
-    }
-
-    static var isEnabled: Bool {
-        if status == .notFound {
-            return FileManager.default.fileExists(atPath: fallbackURL.path)
-        }
-        return status == .enabled
-    }
-
     static func setEnabled(_ enabled: Bool) throws {
-        if status == .notFound {
+        let service = SMAppService.mainApp
+        let currentStatus = service.status
+        if currentStatus == .notFound {
             try setFallbackEnabled(enabled)
             return
         }
 
         if enabled {
-            guard status != .enabled else { return }
-            try SMAppService.mainApp.register()
-            if SMAppService.mainApp.status == .requiresApproval {
+            guard currentStatus != .enabled else { return }
+            try service.register()
+            if service.status == .requiresApproval {
                 SMAppService.openSystemSettingsLoginItems()
             }
         } else {
-            guard status != .notRegistered else { return }
-            try SMAppService.mainApp.unregister()
+            guard currentStatus != .notRegistered else { return }
+            try service.unregister()
         }
     }
 
-    static var statusDescription: String {
-        switch status {
+    static func snapshot() -> Snapshot {
+        let currentStatus = SMAppService.mainApp.status
+        switch currentStatus {
         case .enabled:
-            "已启用"
+            return Snapshot(isEnabled: true, statusDescription: "已启用")
         case .requiresApproval:
-            "等待在系统设置中批准"
+            return Snapshot(isEnabled: false, statusDescription: "等待在系统设置中批准")
         case .notRegistered:
-            "未启用"
+            return Snapshot(isEnabled: false, statusDescription: "未启用")
         case .notFound:
-            isEnabled ? "已启用（本机兼容模式，下次登录生效）" : "未启用（本机兼容模式）"
+            let fallbackEnabled = FileManager.default.fileExists(atPath: fallbackURL.path)
+            return Snapshot(
+                isEnabled: fallbackEnabled,
+                statusDescription: fallbackEnabled
+                    ? "已启用（本机兼容模式，下次登录生效）"
+                    : "未启用（本机兼容模式）"
+            )
         @unknown default:
-            "未知"
+            return Snapshot(isEnabled: false, statusDescription: "未知")
         }
     }
 

@@ -46,8 +46,10 @@ final class HookServer: @unchecked Sendable {
             switch state {
             case .ready:
                 self.receive(request, from: connection)
-            case .failed, .cancelled:
+            case .failed:
                 connection.cancel()
+            case .cancelled:
+                break
             default:
                 break
             }

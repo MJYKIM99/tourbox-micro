@@ -8,10 +8,12 @@ private enum MicroPalette {
     static var accent: Color { ink }
     static var accentBright: Color { graphite }
     static var cyan: Color { graphite }
-    static var card: Color { Color(red: 0.965, green: 0.955, blue: 0.925) }
-    static var page: Color { Color(red: 0.89, green: 0.88, blue: 0.84) }
-    static var sidebar: Color { ink }
-    static var line: Color { ink.opacity(0.24) }
+    static var card: Color { Color.white.opacity(0.46) }
+    static var elevatedCard: Color { Color.white.opacity(0.62) }
+    static var page: Color { Color.white.opacity(0.12) }
+    static var sidebar: Color { ink.opacity(0.80) }
+    static var line: Color { ink.opacity(0.18) }
+    static var glassHighlight: Color { Color.white.opacity(0.50) }
 }
 
 private enum SettingsSection: String, CaseIterable, Identifiable {
@@ -51,33 +53,53 @@ struct SettingsRootView: View {
     @State private var selection: SettingsSection = .overview
 
     var body: some View {
-        HStack(spacing: 0) {
-            SettingsSidebar(model: model, selection: $selection)
-                .frame(width: 218)
-                .environment(\.colorScheme, .dark)
+        ZStack {
+            GlassEffectView(
+                material: .underWindowBackground,
+                blendingMode: .behindWindow,
+                state: .active,
+                emphasized: true
+            )
 
-            Rectangle()
-                .fill(MicroPalette.ink)
-                .frame(width: 1)
+            LinearGradient(
+                colors: [
+                    Color.white.opacity(0.18),
+                    Color(red: 0.76, green: 0.77, blue: 0.73).opacity(0.10),
+                    Color.black.opacity(0.045)
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
 
-            ZStack {
-                MicroPalette.page
+            HStack(spacing: 0) {
+                SettingsSidebar(model: model, selection: $selection)
+                    .frame(width: 218)
+                    .environment(\.colorScheme, .dark)
 
-                Group {
-                    switch selection {
-                    case .overview:
-                        OverviewPage(model: model)
-                    case .controls:
-                        ControlsPage(model: model)
-                    case .diagnostics:
-                        DiagnosticsPage(model: model)
+                Rectangle()
+                    .fill(Color.white.opacity(0.24))
+                    .overlay(MicroPalette.ink.opacity(0.16))
+                    .frame(width: 1)
+
+                ZStack {
+                    MicroPalette.page
+
+                    Group {
+                        switch selection {
+                        case .overview:
+                            OverviewPage(model: model)
+                        case .controls:
+                            ControlsPage(model: model)
+                        case .diagnostics:
+                            DiagnosticsPage(model: model)
+                        }
                     }
+                    .transition(.opacity)
                 }
-                .transition(.opacity)
             }
         }
         .frame(minWidth: 840, minHeight: 600)
-        .background(MicroPalette.page)
+        .background(Color.clear)
         .tint(MicroPalette.accent)
         .preferredColorScheme(.light)
         .ignoresSafeArea()
@@ -191,8 +213,8 @@ private struct SidebarButton: View {
                         .foregroundStyle(selected ? MicroPalette.ink : Color.white)
                         .frame(minWidth: 18, minHeight: 18)
                         .background(
-                            (selected ? MicroPalette.ink.opacity(0.09) : Color.white.opacity(0.12)),
-                            in: RoundedRectangle(cornerRadius: 2)
+                            selected ? MicroPalette.ink.opacity(0.09) : Color.white.opacity(0.12),
+                            in: RoundedRectangle(cornerRadius: 7, style: .continuous)
                         )
                 }
             }
@@ -200,8 +222,8 @@ private struct SidebarButton: View {
             .padding(.horizontal, 11)
             .frame(height: 40)
             .background(
-                selected ? Color.white : Color.white.opacity(hovering ? 0.08 : 0),
-                in: RoundedRectangle(cornerRadius: 3)
+                selected ? Color.white.opacity(0.88) : Color.white.opacity(hovering ? 0.10 : 0),
+                in: RoundedRectangle(cornerRadius: 9, style: .continuous)
             )
         }
         .buttonStyle(.plain)
@@ -251,9 +273,9 @@ private struct SidebarConnectionCard: View {
             .foregroundStyle(.secondary)
         }
         .padding(12)
-        .background(Color.white.opacity(0.055), in: RoundedRectangle(cornerRadius: 3))
+        .background(Color.white.opacity(0.075), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
         .overlay {
-            RoundedRectangle(cornerRadius: 3)
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
                 .stroke(Color.white.opacity(0.2), lineWidth: 1)
         }
     }
@@ -469,7 +491,7 @@ private struct OverviewHero: View {
             .foregroundStyle(.white)
             .padding(20)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-            .background(MicroPalette.ink)
+            .background(MicroPalette.ink.opacity(0.82))
 
             VStack(spacing: 5) {
                 Text("ACTIVE SLOTS")
@@ -492,13 +514,13 @@ private struct OverviewHero: View {
             }
             .frame(width: 190)
             .frame(maxHeight: .infinity)
-            .background(MicroPalette.card)
+            .background(MicroPalette.elevatedCard)
         }
         .frame(height: 156)
-        .clipShape(RoundedRectangle(cornerRadius: 4))
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         .overlay {
-            RoundedRectangle(cornerRadius: 4)
-                .stroke(MicroPalette.ink, lineWidth: 1)
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .stroke(MicroPalette.glassHighlight, lineWidth: 1)
         }
     }
 }
@@ -591,9 +613,9 @@ private struct MappingTile: View {
             .frame(width: 158)
         }
         .padding(13)
-        .background(MicroPalette.card, in: RoundedRectangle(cornerRadius: 4))
+        .background(MicroPalette.card, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
         .overlay {
-            RoundedRectangle(cornerRadius: 4)
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
                 .stroke(MicroPalette.line, lineWidth: 1)
         }
     }
@@ -702,10 +724,10 @@ private struct HealthSummary: View {
                 }
         }
         .padding(18)
-        .background(MicroPalette.card, in: RoundedRectangle(cornerRadius: 4))
+        .background(MicroPalette.elevatedCard, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
         .overlay {
-            RoundedRectangle(cornerRadius: 4)
-                .stroke(MicroPalette.ink, lineWidth: 1)
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(MicroPalette.glassHighlight, lineWidth: 1)
         }
     }
 }
@@ -755,9 +777,9 @@ private struct DiagnosticCard: View {
         }
         .padding(14)
         .frame(minHeight: 70)
-        .background(MicroPalette.card, in: RoundedRectangle(cornerRadius: 4))
+        .background(MicroPalette.card, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
         .overlay {
-            RoundedRectangle(cornerRadius: 4)
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
                 .stroke(MicroPalette.line, lineWidth: 1)
         }
     }
@@ -841,9 +863,9 @@ private struct MetricCard: View {
         }
         .padding(14)
         .frame(maxWidth: .infinity, minHeight: 82)
-        .background(MicroPalette.card, in: RoundedRectangle(cornerRadius: 4))
+        .background(MicroPalette.card, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
         .overlay {
-            RoundedRectangle(cornerRadius: 4)
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
                 .stroke(MicroPalette.line, lineWidth: 1)
         }
     }
@@ -907,10 +929,10 @@ private struct InfoBanner: View {
             Spacer()
         }
         .padding(13)
-        .background(MicroPalette.card, in: RoundedRectangle(cornerRadius: 4))
+        .background(MicroPalette.card, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
         .overlay {
-            RoundedRectangle(cornerRadius: 4)
-                .stroke(MicroPalette.ink, style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .stroke(MicroPalette.ink.opacity(0.55), style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
         }
     }
 }
@@ -944,9 +966,9 @@ private struct SurfaceCard<Content: View>: View {
         content
             .padding(16)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(MicroPalette.card, in: RoundedRectangle(cornerRadius: 4))
+            .background(MicroPalette.card, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
             .overlay {
-                RoundedRectangle(cornerRadius: 4)
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
                     .stroke(MicroPalette.line, lineWidth: 1)
             }
     }

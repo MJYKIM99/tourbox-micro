@@ -8,6 +8,7 @@ final class HUDController {
     private static let taskPeekSize = NSSize(width: 448, height: 142)
     private let screenMargin: CGFloat = 18
     private let panel: NSPanel
+    private let glassView: NSVisualEffectView
     private let contentView: HUDCanvasView
     private let peekPanel: NSPanel
     private let peekView: TaskPeekView
@@ -16,6 +17,9 @@ final class HUDController {
     private var statusNotificationsEnabled: Bool
     private var animationsEnabled: Bool
     private var currentSlots: [AgentSlot] = []
+    private var currentSelectedSlotIndex: Int?
+    private var currentTourBoxConnected = false
+    private var currentStatusText: String?
     private var hoveredSlotIndex: Int?
     private var displayedPeekSlot: AgentSlot?
     private var peekIsHovered = false
@@ -42,6 +46,7 @@ final class HUDController {
             frame: NSRect(origin: .zero, size: size),
             style: style
         )
+        glassView = NSVisualEffectView(frame: NSRect(origin: .zero, size: size))
         panel = NSPanel(
             contentRect: NSRect(origin: .zero, size: size),
             styleMask: [.borderless, .nonactivatingPanel],
@@ -67,7 +72,20 @@ final class HUDController {
         panel.isMovableByWindowBackground = true
         panel.isReleasedWhenClosed = false
         panel.acceptsMouseMovedEvents = true
-        panel.contentView = contentView
+
+        glassView.material = .hudWindow
+        glassView.blendingMode = .behindWindow
+        glassView.state = .active
+        glassView.appearance = NSAppearance(named: .darkAqua)
+        glassView.isEmphasized = true
+        glassView.wantsLayer = true
+        glassView.layer?.cornerCurve = .continuous
+        glassView.layer?.cornerRadius = Self.cornerRadius(for: style)
+        glassView.layer?.masksToBounds = true
+        glassView.autoresizingMask = [.width, .height]
+        contentView.autoresizingMask = [.width, .height]
+        glassView.addSubview(contentView)
+        panel.contentView = glassView
 
         peekPanel.level = .floating
         peekPanel.isOpaque = false
@@ -102,6 +120,7 @@ final class HUDController {
             self?.openSlotFromHUD(index)
         }
         contentView.setAnimationsEnabled(animationsEnabled)
+        contentView.setVisible(false)
         peekView.onHoverChanged = { [weak self] hovering in
             self?.handlePeekHoverChanged(hovering)
         }
@@ -114,18 +133,29 @@ final class HUDController {
 
     func show() {
         repairCompactFrame()
+        contentView.setVisible(true)
         panel.orderFrontRegardless()
         refreshPeek()
     }
 
     func hide() {
+        contentView.setVisible(false)
         panel.orderOut(nil)
         hoverDismissTimer?.invalidate()
         hoverDismissTimer = nil
+        transientTimer?.invalidate()
+        transientTimer = nil
+        transientSlot = nil
         hoveredSlotIndex = nil
         displayedPeekSlot = nil
         peekIsHovered = false
         peekPanel.orderOut(nil)
+    }
+
+    func close() {
+        hide()
+        peekPanel.close()
+        panel.close()
     }
 
     func toggle() {
@@ -173,6 +203,7 @@ final class HUDController {
     }
 
     func setAnimationsEnabled(_ enabled: Bool) {
+        guard enabled != animationsEnabled else { return }
         animationsEnabled = enabled
         contentView.setAnimationsEnabled(enabled)
     }
@@ -183,9 +214,16 @@ final class HUDController {
         tourBoxConnected: Bool,
         statusText: String? = nil
     ) {
+        guard slots != currentSlots
+                || selectedSlotIndex != currentSelectedSlotIndex
+                || tourBoxConnected != currentTourBoxConnected
+                || statusText != currentStatusText else { return }
         repairCompactFrame()
         let notificationSlot = statusTransitionTracker.notificationCandidate(in: slots)
         currentSlots = slots
+        currentSelectedSlotIndex = selectedSlotIndex
+        currentTourBoxConnected = tourBoxConnected
+        currentStatusText = statusText
         contentView.update(
             slots: slots,
             selectedSlotIndex: selectedSlotIndex,
@@ -201,14 +239,20 @@ final class HUDController {
 
     func resetPosition() {
         positionAtAnchor()
-        panel.orderFrontRegardless()
-        refreshPeek()
+        show()
     }
 
     private static func size(for style: HUDStyle) -> NSSize {
         switch style {
         case .glassLights: glassLightsSize
         case .taskList: taskListSize
+        }
+    }
+
+    private static func cornerRadius(for style: HUDStyle) -> CGFloat {
+        switch style {
+        case .glassLights: 18
+        case .taskList: 14
         }
     }
 
@@ -225,6 +269,8 @@ final class HUDController {
         panel.maxSize = size
         panel.contentMinSize = size
         panel.contentMaxSize = size
+        glassView.frame = NSRect(origin: .zero, size: size)
+        glassView.layer?.cornerRadius = Self.cornerRadius(for: style)
         contentView.frame = NSRect(origin: .zero, size: size)
         positionAtAnchor()
     }
@@ -421,11 +467,11 @@ private final class HUDCanvasView: NSView {
     }
 
     private enum Palette {
-        static let shell = NSColor(calibratedWhite: 0.055, alpha: 0.97)
-        static let shellEdge = NSColor(calibratedWhite: 0.64, alpha: 0.65)
-        static let hairline = NSColor(calibratedWhite: 0.32, alpha: 0.72)
-        static let row = NSColor(calibratedWhite: 0.105, alpha: 0.98)
-        static let rowAlternate = NSColor(calibratedWhite: 0.125, alpha: 0.98)
+        static let shell = NSColor(calibratedWhite: 0.02, alpha: 0.22)
+        static let shellEdge = NSColor.white.withAlphaComponent(0.34)
+        static let hairline = NSColor.white.withAlphaComponent(0.14)
+        static let row = NSColor(calibratedWhite: 0.03, alpha: 0.28)
+        static let rowAlternate = NSColor(calibratedWhite: 0.12, alpha: 0.30)
         static let paper = NSColor(calibratedWhite: 0.88, alpha: 1)
         static let ink = NSColor(calibratedWhite: 0.055, alpha: 1)
         static let primary = NSColor(calibratedWhite: 0.92, alpha: 1)
@@ -441,7 +487,8 @@ private final class HUDCanvasView: NSView {
     private var hoverTrackingArea: NSTrackingArea?
     private var reportedHoverSlotIndex: Int?
     private var animationsEnabled = true
-    private let glassLightsView: GlassLightsHostingView
+    private var contentVisible = false
+    private var glassLightsView: GlassLightsHostingView?
 
     var onHoverSlotChanged: ((Int?) -> Void)?
     var onOpenSlot: ((Int) -> Void)?
@@ -451,18 +498,10 @@ private final class HUDCanvasView: NSView {
 
     init(frame frameRect: NSRect, style: HUDStyle) {
         self.style = style
-        glassLightsView = GlassLightsHostingView(frame: frameRect)
         super.init(frame: frameRect)
         wantsLayer = true
         layer?.masksToBounds = true
-        glassLightsView.isHidden = style != .glassLights
-        glassLightsView.onHoverSlotChanged = { [weak self] index in
-            self?.reportHoverSlot(index)
-        }
-        glassLightsView.onOpenSlot = { [weak self] index in
-            self?.onOpenSlot?(index)
-        }
-        addSubview(glassLightsView)
+        if style == .glassLights { installGlassLightsView() }
         setAccessibilityElement(true)
         setAccessibilityRole(.group)
         updateAccessibilityLabel()
@@ -471,17 +510,51 @@ private final class HUDCanvasView: NSView {
     required init?(coder: NSCoder) { nil }
 
     func setStyle(_ style: HUDStyle) {
+        guard style != self.style else { return }
         self.style = style
-        if style != .glassLights { reportHoverSlot(nil) }
-        glassLightsView.isHidden = style != .glassLights
+        if style == .glassLights {
+            installGlassLightsView()
+        } else {
+            reportHoverSlot(nil)
+            glassLightsView?.removeFromSuperview()
+            glassLightsView = nil
+        }
         updateTrackingAreas()
         needsDisplay = true
     }
 
+    private func installGlassLightsView() {
+        guard glassLightsView == nil else { return }
+        let view = GlassLightsHostingView(frame: bounds)
+        view.autoresizingMask = [.width, .height]
+        view.onHoverSlotChanged = { [weak self] index in
+            self?.reportHoverSlot(index)
+        }
+        view.onOpenSlot = { [weak self] index in
+            self?.onOpenSlot?(index)
+        }
+        view.update(
+            slots: slots,
+            selectedSlotIndex: selectedSlotIndex,
+            animationsEnabled: animationsEnabled,
+            isVisible: contentVisible
+        )
+        addSubview(view)
+        glassLightsView = view
+    }
+
     func setAnimationsEnabled(_ enabled: Bool) {
+        guard animationsEnabled != enabled else { return }
         animationsEnabled = enabled
-        glassLightsView.setAnimationsEnabled(enabled)
+        glassLightsView?.setAnimationsEnabled(enabled)
         needsDisplay = true
+    }
+
+    func setVisible(_ visible: Bool) {
+        guard contentVisible != visible else { return }
+        contentVisible = visible
+        glassLightsView?.setVisible(visible)
+        if !visible { reportHoverSlot(nil) }
     }
 
     func update(
@@ -490,14 +563,20 @@ private final class HUDCanvasView: NSView {
         tourBoxConnected: Bool,
         statusText: String?
     ) {
+        let nextStatusText = statusText ?? (tourBoxConnected ? "TourBox 已连接" : "等待 TourBox")
+        guard slots != self.slots
+                || selectedSlotIndex != self.selectedSlotIndex
+                || tourBoxConnected != self.tourBoxConnected
+                || nextStatusText != self.statusText else { return }
         self.slots = slots
         self.selectedSlotIndex = selectedSlotIndex
         self.tourBoxConnected = tourBoxConnected
-        self.statusText = statusText ?? (tourBoxConnected ? "TourBox 已连接" : "等待 TourBox")
-        glassLightsView.update(
+        self.statusText = nextStatusText
+        glassLightsView?.update(
             slots: slots,
             selectedSlotIndex: selectedSlotIndex,
-            animationsEnabled: animationsEnabled
+            animationsEnabled: animationsEnabled,
+            isVisible: contentVisible
         )
         updateAccessibilityLabel()
         window?.invalidateCursorRects(for: self)
@@ -572,7 +651,7 @@ private final class HUDCanvasView: NSView {
 
     override func layout() {
         super.layout()
-        glassLightsView.frame = bounds
+        glassLightsView?.frame = bounds
     }
 
     override func draw(_ dirtyRect: NSRect) {

@@ -1,5 +1,17 @@
 import Foundation
 
+private let fractionalISO8601 = Date.ISO8601FormatStyle(includingFractionalSeconds: true)
+private let standardISO8601 = Date.ISO8601FormatStyle(includingFractionalSeconds: false)
+
+private func rolloutTimestamp(from object: [String: Any]) -> Date? {
+    if let milliseconds = object["timestamp_ms"] as? NSNumber {
+        return Date(timeIntervalSince1970: milliseconds.doubleValue / 1_000)
+    }
+    guard let rawValue = object["timestamp"] as? String else { return nil }
+    return (try? fractionalISO8601.parse(rawValue))
+        ?? (try? standardISO8601.parse(rawValue))
+}
+
 public struct RolloutLifecycleSnapshot: Equatable, Sendable {
     public let threadID: String
     public let cwd: String
@@ -37,6 +49,10 @@ public struct RolloutPresentationReader: Sendable {
         self.maximumBytesPerRollout = min(max(maximumBytesPerRollout, 65_536), 2_097_152)
     }
 
+    public func snapshots(for threads: [CodexThread]) -> [RolloutPresentationSnapshot] {
+        threads.prefix(maximumThreads).compactMap(snapshot)
+    }
+
     public func snapshot(for thread: CodexThread) -> RolloutPresentationSnapshot? {
         guard let rolloutPath = thread.rolloutPath, !rolloutPath.isEmpty else { return nil }
         let url = URL(fileURLWithPath: rolloutPath)
@@ -52,7 +68,7 @@ public struct RolloutPresentationReader: Sendable {
         for line in lines.reversed() {
             guard let object = try? JSONSerialization.jsonObject(with: Data(line)) as? [String: Any],
                   let payload = object["payload"] as? [String: Any] else { continue }
-            let date = timestamp(from: object) ?? fallbackDate
+            let date = rolloutTimestamp(from: object) ?? fallbackDate
 
             if object["type"] as? String == "event_msg" {
                 switch payload["type"] as? String {
@@ -147,18 +163,6 @@ public struct RolloutPresentationReader: Sendable {
         return try handle.read(upToCount: Int(byteCount)) ?? Data()
     }
 
-    private func timestamp(from object: [String: Any]) -> Date? {
-        if let milliseconds = object["timestamp_ms"] as? NSNumber {
-            return Date(timeIntervalSince1970: milliseconds.doubleValue / 1_000)
-        }
-        guard let rawValue = object["timestamp"] as? String else { return nil }
-        let fractional = ISO8601DateFormatter()
-        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        if let date = fractional.date(from: rawValue) { return date }
-        let standard = ISO8601DateFormatter()
-        standard.formatOptions = [.withInternetDateTime]
-        return standard.date(from: rawValue)
-    }
 }
 
 /// Recovers the last start/complete lifecycle edge from recent rollout files.
@@ -208,7 +212,7 @@ public struct RolloutStateReconciler: Sendable {
             case "task_complete": state = .complete
             default: continue
             }
-            let lifecycleDate = timestamp(from: object) ?? fallbackDate
+            let lifecycleDate = rolloutTimestamp(from: object) ?? fallbackDate
             let eventDate = state == .thinking
                 ? max(lifecycleDate, fallbackDate)
                 : lifecycleDate
@@ -235,94 +239,83 @@ public struct RolloutStateReconciler: Sendable {
         return try handle.read(upToCount: Int(byteCount)) ?? Data()
     }
 
-    private func timestamp(from object: [String: Any]) -> Date? {
-        if let milliseconds = object["timestamp_ms"] as? NSNumber {
-            return Date(timeIntervalSince1970: milliseconds.doubleValue / 1_000)
-        }
-        guard let rawValue = object["timestamp"] as? String else { return nil }
-        let fractional = ISO8601DateFormatter()
-        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        if let date = fractional.date(from: rawValue) { return date }
-        let standard = ISO8601DateFormatter()
-        standard.formatOptions = [.withInternetDateTime]
-        return standard.date(from: rawValue)
-    }
 }
 
-public final class RolloutActivityMonitor: @unchecked Sendable {
+/// Tracks rollout file changes once so lifecycle and presentation readers can
+/// share the same bounded filesystem scan.
+public final class RolloutChangeMonitor: @unchecked Sendable {
     private struct Fingerprint: Equatable {
         let modificationDate: Date?
         let fileSize: Int?
     }
 
-    private let reconciler: RolloutStateReconciler
+    public let maximumThreads: Int
     private var fingerprints: [String: Fingerprint] = [:]
     private let lock = NSLock()
 
+    public init(maximumThreads: Int = 120) {
+        self.maximumThreads = min(max(maximumThreads, 1), 500)
+    }
+
+    public func changedThreads(
+        for threads: [CodexThread],
+        force: Bool = false
+    ) -> [CodexThread] {
+        lock.lock()
+        defer { lock.unlock() }
+
+        var changed: [CodexThread] = []
+        var livePaths = Set<String>()
+        for thread in threads.prefix(maximumThreads) {
+            guard let path = thread.rolloutPath, !path.isEmpty else { continue }
+            livePaths.insert(path)
+            let values = try? URL(fileURLWithPath: path).resourceValues(
+                forKeys: [.contentModificationDateKey, .fileSizeKey]
+            )
+            let fingerprint = Fingerprint(
+                modificationDate: values?.contentModificationDate,
+                fileSize: values?.fileSize
+            )
+            if force || fingerprints[path] != fingerprint {
+                fingerprints[path] = fingerprint
+                changed.append(thread)
+            }
+        }
+        fingerprints = fingerprints.filter { livePaths.contains($0.key) }
+        return changed
+    }
+}
+
+public final class RolloutActivityMonitor: @unchecked Sendable {
+    private let reconciler: RolloutStateReconciler
+    private let changeMonitor: RolloutChangeMonitor
+
     public init(reconciler: RolloutStateReconciler = .init()) {
         self.reconciler = reconciler
+        changeMonitor = RolloutChangeMonitor(maximumThreads: reconciler.maximumThreads)
     }
 
     public func changedSnapshots(
         for threads: [CodexThread],
         force: Bool = false
     ) -> [RolloutLifecycleSnapshot] {
-        lock.lock()
-        defer { lock.unlock() }
-
-        var changed: [CodexThread] = []
-        for thread in threads.prefix(reconciler.maximumThreads) {
-            guard let path = thread.rolloutPath, !path.isEmpty else { continue }
-            let url = URL(fileURLWithPath: path)
-            let values = try? url.resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey])
-            let fingerprint = Fingerprint(
-                modificationDate: values?.contentModificationDate,
-                fileSize: values?.fileSize
-            )
-            if force || fingerprints[path] != fingerprint {
-                fingerprints[path] = fingerprint
-                changed.append(thread)
-            }
-        }
-        return changed.compactMap(reconciler.snapshot)
+        changeMonitor.changedThreads(for: threads, force: force).compactMap(reconciler.snapshot)
     }
 }
 
 public final class RolloutPresentationMonitor: @unchecked Sendable {
-    private struct Fingerprint: Equatable {
-        let modificationDate: Date?
-        let fileSize: Int?
-    }
-
     private let reader: RolloutPresentationReader
-    private var fingerprints: [String: Fingerprint] = [:]
-    private let lock = NSLock()
+    private let changeMonitor: RolloutChangeMonitor
 
     public init(reader: RolloutPresentationReader = .init()) {
         self.reader = reader
+        changeMonitor = RolloutChangeMonitor(maximumThreads: reader.maximumThreads)
     }
 
     public func changedSnapshots(
         for threads: [CodexThread],
         force: Bool = false
     ) -> [RolloutPresentationSnapshot] {
-        lock.lock()
-        defer { lock.unlock() }
-
-        var changed: [CodexThread] = []
-        for thread in threads.prefix(reader.maximumThreads) {
-            guard let path = thread.rolloutPath, !path.isEmpty else { continue }
-            let url = URL(fileURLWithPath: path)
-            let values = try? url.resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey])
-            let fingerprint = Fingerprint(
-                modificationDate: values?.contentModificationDate,
-                fileSize: values?.fileSize
-            )
-            if force || fingerprints[path] != fingerprint {
-                fingerprints[path] = fingerprint
-                changed.append(thread)
-            }
-        }
-        return changed.compactMap(reader.snapshot)
+        changeMonitor.changedThreads(for: threads, force: force).compactMap(reader.snapshot)
     }
 }
