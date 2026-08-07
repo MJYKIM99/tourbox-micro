@@ -195,6 +195,26 @@ public final class ActivityRepository: @unchecked Sendable {
         }
     }
 
+    /// Active-looking rows are diagnostic hints, not durable task truth. Avoid
+    /// restoring a day-old permission request or run as current attention.
+    @discardableResult
+    public func expireStaleActiveStates(before cutoff: Date, at date: Date = Date()) throws -> Int {
+        try locked {
+            let statement = try prepare("""
+                UPDATE task_status
+                SET state = 'idle', detail = NULL, updated_at_ms = ?
+                WHERE state IN ('thinking', 'needsInput') AND updated_at_ms < ?;
+                """)
+            defer { sqlite3_finalize(statement) }
+            let timestamp = Int64((date.timeIntervalSince1970 * 1_000).rounded())
+            let cutoffTimestamp = Int64((cutoff.timeIntervalSince1970 * 1_000).rounded())
+            try check(sqlite3_bind_int64(statement, 1, timestamp))
+            try check(sqlite3_bind_int64(statement, 2, cutoffTimestamp))
+            guard sqlite3_step(statement) == SQLITE_DONE else { throw sqliteError() }
+            return Int(sqlite3_changes(database))
+        }
+    }
+
     private static func identityKey(for activity: AgentActivity) -> String? {
         if let threadID = activity.threadID, !threadID.isEmpty { return "thread:\(threadID)" }
         if let cwd = activity.cwd, !cwd.isEmpty { return "cwd:\(cwd)" }

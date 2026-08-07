@@ -34,6 +34,17 @@ public struct AgentStatusTransitionTracker: Sendable {
         }
     }
 
+    public static func notificationIsCurrent(
+        _ notification: AgentSlot,
+        in slots: [AgentSlot]
+    ) -> Bool {
+        guard let threadID = notification.thread?.id,
+              let current = slots.first(where: { $0.thread?.id == threadID }) else {
+            return false
+        }
+        return current.state == notification.state && notifiableStates.contains(current.state)
+    }
+
     private static let notifiableStates: Set<AgentState> = [
         .complete,
         .needsInput,

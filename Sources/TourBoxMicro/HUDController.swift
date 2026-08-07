@@ -230,6 +230,12 @@ final class HUDController {
         currentSelectedSlotIndex = selectedSlotIndex
         currentTourBoxConnected = tourBoxConnected
         currentStatusText = statusText
+        if let transientSlot,
+           !AgentStatusTransitionTracker.notificationIsCurrent(transientSlot, in: slots) {
+            transientTimer?.invalidate()
+            transientTimer = nil
+            self.transientSlot = nil
+        }
         contentView.update(
             slots: slots,
             selectedSlotIndex: selectedSlotIndex,

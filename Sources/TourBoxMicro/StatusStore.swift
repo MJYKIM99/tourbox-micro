@@ -26,7 +26,7 @@ final class StatusStore {
                 .appendingPathComponent("TourBox Micro", isDirectory: true)
                 .appendingPathComponent("status.sqlite3")
             let openedRepository = try ActivityRepository(databaseURL: url)
-            _ = try openedRepository.expireThinking(
+            _ = try openedRepository.expireStaleActiveStates(
                 before: Date().addingTimeInterval(-86_400)
             )
             let restoredActivities = try openedRepository.loadActivities()

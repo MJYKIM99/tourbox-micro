@@ -376,7 +376,7 @@ private struct OverviewPage: View {
                             Divider().padding(.leading, 44)
                             SettingToggleRow(
                                 title: "灯光状态动效",
-                                detail: "按任务状态显示呼吸、流光与提醒脉冲",
+                                detail: "显示状态切换、悬停与提醒反馈，不持续空转",
                                 symbol: "sparkles",
                                 isOn: Binding(
                                     get: { model.hudAnimationsEnabled },

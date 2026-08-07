@@ -1,4 +1,5 @@
 import AppKit
+import OSLog
 import TourBoxCore
 
 @MainActor
@@ -9,9 +10,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         static let timerTolerance: TimeInterval = 1
     }
 
+    private enum StatusPolicy {
+        static let permissionDebounce: Duration = .milliseconds(750)
+    }
+
     private let repository = ThreadRepository()
     private let statusStore = StatusStore()
     private let codexController = CodexController()
+    private let lifecycleLogger = Logger(
+        subsystem: Bundle.main.bundleIdentifier ?? "com.yi.tourboxmicro",
+        category: "lifecycle"
+    )
     private var hudStyle = PreferencesStore.loadHUDStyle()
     private var hudVisible = PreferencesStore.loadHUDVisible()
     private var hudHoverDetailsEnabled = PreferencesStore.loadHUDHoverDetails()
@@ -32,7 +41,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var tourBoxConnected = false
     private var tourBoxServerListening = false
     private var hookServerListening = false
-    private var connectionStatus = "等待 TourBox"
+    private var runtimeConnectionState = RuntimeConnectionState()
+    private var hookSignalGate = HookSignalGate()
+    private var deferredInputTasks: [String: DeferredInputTask] = [:]
     private var refreshTimer: Timer?
     private var threadRefreshInFlight = false
     private var threadRefreshPending = false
@@ -47,11 +58,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var settingsWindowController: SettingsWindowController?
     private var lastHUDRenderState: HUDRenderState?
 
+    private var connectionStatus: String {
+        runtimeConnectionState.displayText
+    }
+
     private struct HUDRenderState: Equatable {
         let slots: [AgentSlot]
         let selectedSlotIndex: Int?
         let tourBoxConnected: Bool
         let statusText: String
+    }
+
+    private struct DeferredInputTask {
+        let token: UUID
+        let task: Task<Void, Never>
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -84,6 +104,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         refreshTimer?.invalidate()
+        deferredInputTasks.values.forEach { $0.task.cancel() }
+        deferredInputTasks.removeAll()
+        hookSignalGate.removeAll()
         tourBoxServer?.stop()
         hookServer?.stop()
         hudController?.hide()
@@ -95,7 +118,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             onEvent: { [weak self] event in self?.handle(event) },
             onConnection: { [weak self] connected, error in
                 self?.tourBoxConnected = connected
-                self?.connectionStatus = error.map { "TourBox：\($0)" } ?? (connected ? "TourBox 已连接" : "等待 TourBox")
+                self?.runtimeConnectionState.setTourBoxStatus(
+                    error.map { "TourBox：\($0)" }
+                        ?? (connected ? "TourBox 已连接" : "等待 TourBox")
+                )
                 self?.render()
             }
         )
@@ -105,16 +131,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             tourBoxServerListening = true
         } catch {
             tourBoxServerListening = false
-            connectionStatus = "Port 50500: \(error.localizedDescription)"
+            runtimeConnectionState.setTourBoxStatus("Port 50500: \(error.localizedDescription)")
         }
 
         let hookServer = HookServer(
             onSignal: { [weak self] signal in
-                self?.statusStore.apply(signal)
-                self?.resolveSlots()
+                self?.receiveHookSignal(signal)
             },
             onError: { [weak self] error in
-                self?.connectionStatus = "Hook server: \(error)"
+                self?.runtimeConnectionState.setHookServerError("Hook server: \(error)")
                 self?.render()
             }
         )
@@ -124,9 +149,51 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             hookServerListening = true
         } catch {
             hookServerListening = false
-            connectionStatus = "Port 50501: \(error.localizedDescription)"
+            runtimeConnectionState.setHookServerError("Port 50501: \(error.localizedDescription)")
         }
         render()
+    }
+
+    private func receiveHookSignal(_ signal: HookSignal) {
+        switch hookSignalGate.receive(signal) {
+        case .deferInput(let identityKey):
+            deferredInputTasks.removeValue(forKey: identityKey)?.task.cancel()
+            let token = UUID()
+            lifecycleLogger.info(
+                "Deferring permission signal identity=\(identityKey, privacy: .private(mask: .hash))"
+            )
+            let task = Task { [weak self] in
+                do {
+                    try await Task.sleep(for: StatusPolicy.permissionDebounce)
+                } catch {
+                    return
+                }
+                guard let self,
+                      deferredInputTasks[identityKey]?.token == token else { return }
+                deferredInputTasks[identityKey] = nil
+                guard let deferred = hookSignalGate.flushDeferredInput(for: identityKey) else {
+                    return
+                }
+                lifecycleLogger.notice(
+                    "Committing user-input state identity=\(identityKey, privacy: .private(mask: .hash))"
+                )
+                applyHookSignal(deferred)
+            }
+            deferredInputTasks[identityKey] = DeferredInputTask(token: token, task: task)
+        case .apply(let current, let canceledIdentityKey):
+            if let canceledIdentityKey {
+                deferredInputTasks.removeValue(forKey: canceledIdentityKey)?.task.cancel()
+                lifecycleLogger.notice(
+                    "Canceled permission signal after state=\(current.state.rawValue, privacy: .public) identity=\(canceledIdentityKey, privacy: .private(mask: .hash))"
+                )
+            }
+            applyHookSignal(current)
+        }
+    }
+
+    private func applyHookSignal(_ signal: HookSignal) {
+        statusStore.apply(signal)
+        resolveSlots()
     }
 
     private func refreshThreads() {
@@ -152,15 +219,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             threadRefreshInFlight = false
 
             if let threads = result.threads {
+                let recoveredFromError = runtimeConnectionState.clearCodexStateError()
+                if recoveredFromError {
+                    lifecycleLogger.notice("Codex state database access recovered")
+                }
                 if threads != recentThreads {
                     recentThreads = threads
                     resolveSlots()
+                } else if recoveredFromError {
+                    render()
                 }
                 startRolloutReconciliationIfNeeded()
             } else if let error = result.error {
                 let message = "Codex state: \(error)"
-                if connectionStatus != message {
-                    connectionStatus = message
+                if runtimeConnectionState.codexStateError != message {
+                    runtimeConnectionState.setCodexStateError(message)
+                    lifecycleLogger.error("Codex state database refresh failed")
                     render()
                 }
             }

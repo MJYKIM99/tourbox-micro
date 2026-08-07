@@ -114,6 +114,28 @@ import Testing
     #expect(restored.first(where: { $0.threadID == "old-input" })?.state == .needsInput)
 }
 
+@Test func expiresStaleThinkingAndInputRowsForStartupRecovery() throws {
+    let directory = FileManager.default.temporaryDirectory
+        .appendingPathComponent("tourbox-active-expiry-tests-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let repository = try ActivityRepository(databaseURL: directory.appendingPathComponent("status.sqlite3"))
+    let old = Date(timeIntervalSince1970: 1_700_000_000)
+    let recent = Date(timeIntervalSince1970: 1_700_000_150)
+    try repository.upsert(AgentActivity(threadID: "old-run", state: .thinking, updatedAt: old))
+    try repository.upsert(AgentActivity(threadID: "old-input", state: .needsInput, updatedAt: old))
+    try repository.upsert(AgentActivity(threadID: "recent-input", state: .needsInput, updatedAt: recent))
+
+    let expired = try repository.expireStaleActiveStates(
+        before: Date(timeIntervalSince1970: 1_700_000_100),
+        at: Date(timeIntervalSince1970: 1_700_000_200)
+    )
+    let restored = try repository.loadActivities()
+    #expect(expired == 2)
+    #expect(restored.first(where: { $0.threadID == "old-run" })?.state == .idle)
+    #expect(restored.first(where: { $0.threadID == "old-input" })?.state == .idle)
+    #expect(restored.first(where: { $0.threadID == "recent-input" })?.state == .needsInput)
+}
+
 @Test func rolloutMonitorParsesOnlyChangedFiles() throws {
     let directory = FileManager.default.temporaryDirectory
         .appendingPathComponent("tourbox-rollout-monitor-tests-\(UUID().uuidString)")

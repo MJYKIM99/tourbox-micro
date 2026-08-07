@@ -5,6 +5,26 @@ follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.8.1] - 2026-08-07
+
+### Added
+
+- Privacy-preserving lifecycle diagnostics for deferred, canceled, and
+  committed permission signals, plus Codex database failure and recovery.
+
+### Fixed
+
+- Debounced permission hooks for 750 milliseconds and canceled them when a
+  matching tool-use or lifecycle event proves that Codex continued running.
+- Dismissed an existing “action required” card as soon as its task returns to
+  running, completes, disappears, or otherwise changes state.
+- Cleared transient Codex database errors after the next successful refresh
+  instead of leaving a recovered failure permanently visible in the HUD.
+- Expired day-old running and input-request rows during startup so abandoned
+  task state cannot return as current attention.
+- Matched deferred hook events by both thread ID and working directory when one
+  of the later hook payloads omits an identifier.
+
 ## [0.8.0] - 2026-08-06
 
 ### Added
@@ -62,6 +82,7 @@ follows [Semantic Versioning](https://semver.org/).
 - Swift Testing coverage for protocol, routing, configuration, persistence,
   rollout, display text, slot ordering, and transition behavior.
 
-[Unreleased]: https://github.com/MJYKIM99/tourbox-micro/compare/v0.8.0...HEAD
+[Unreleased]: https://github.com/MJYKIM99/tourbox-micro/compare/v0.8.1...HEAD
+[0.8.1]: https://github.com/MJYKIM99/tourbox-micro/compare/v0.8.0...v0.8.1
 [0.8.0]: https://github.com/MJYKIM99/tourbox-micro/compare/v0.7.2...v0.8.0
 [0.7.2]: https://github.com/MJYKIM99/tourbox-micro/releases/tag/v0.7.2
