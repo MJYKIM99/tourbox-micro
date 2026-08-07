@@ -27,7 +27,7 @@ TourBox Micro 是一个原生 macOS 桥接应用，把 TourBox Console 的 Max/M
 
 > [!IMPORTANT]
 > TourBox Micro 是独立开发的公开测试版，与 TourBox Tech 或 OpenAI 没有关联，
-> 也未获得其官方背书。版本 **0.8.1（Build 17）** 已在 TourBox Elite、
+> 也未获得其官方背书。版本 **0.8.1（Build 18）** 已在 TourBox Elite、
 > TourBox Console 5.2.6 和 macOS 14 或更高版本上测试。
 
 <p align="center">

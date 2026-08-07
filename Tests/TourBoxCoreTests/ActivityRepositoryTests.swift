@@ -136,6 +136,42 @@ import Testing
     #expect(restored.first(where: { $0.threadID == "recent-input" })?.state == .needsInput)
 }
 
+@Test func maintenanceRemovesStaleOrphansAndExpiresRemainingActiveRows() throws {
+    let directory = FileManager.default.temporaryDirectory
+        .appendingPathComponent("tourbox-status-maintenance-tests-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let repository = try ActivityRepository(databaseURL: directory.appendingPathComponent("status.sqlite3"))
+    let old = Date(timeIntervalSince1970: 1_700_000_000)
+    let recent = Date(timeIntervalSince1970: 1_700_000_150)
+    let cutoff = Date(timeIntervalSince1970: 1_700_000_100)
+    let maintenanceDate = Date(timeIntervalSince1970: 1_700_000_200)
+
+    try repository.upsert(AgentActivity(threadID: "orphan", state: .thinking, updatedAt: old))
+    try repository.upsert(AgentActivity(threadID: "kept", state: .thinking, updatedAt: old))
+    try repository.upsert(AgentActivity(cwd: "/cwd-only", state: .needsInput, updatedAt: old))
+    try repository.upsert(AgentActivity(threadID: "recent", state: .thinking, updatedAt: recent))
+    try repository.upsert(AgentActivity(threadID: "fresh-orphan", state: .thinking, updatedAt: recent))
+    try repository.upsert(AgentActivity(threadID: "idle-orphan", state: .idle, updatedAt: recent))
+    try repository.upsert(AgentActivity(threadID: "completed", state: .complete, updatedAt: old))
+
+    let result = try repository.performMaintenance(
+        keepingThreadIDs: ["kept", "recent", "completed"],
+        activeBefore: cutoff,
+        at: maintenanceDate
+    )
+    let restored = try repository.loadActivities()
+
+    #expect(result.removedOrphanCount == 2)
+    #expect(result.expiredActiveCount == 2)
+    #expect(restored.first(where: { $0.threadID == "orphan" }) == nil)
+    #expect(restored.first(where: { $0.threadID == "kept" })?.state == .idle)
+    #expect(restored.first(where: { $0.cwd == "/cwd-only" })?.state == .idle)
+    #expect(restored.first(where: { $0.threadID == "recent" })?.state == .thinking)
+    #expect(restored.first(where: { $0.threadID == "fresh-orphan" })?.state == .thinking)
+    #expect(restored.first(where: { $0.threadID == "idle-orphan" }) == nil)
+    #expect(restored.first(where: { $0.threadID == "completed" })?.state == .complete)
+}
+
 @Test func rolloutMonitorParsesOnlyChangedFiles() throws {
     let directory = FileManager.default.temporaryDirectory
         .appendingPathComponent("tourbox-rollout-monitor-tests-\(UUID().uuidString)")

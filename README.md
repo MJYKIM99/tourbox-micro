@@ -28,7 +28,7 @@ lifecycle persistence in one small menu-bar app.
 
 > [!IMPORTANT]
 > TourBox Micro is an independent public beta. It is not affiliated with or
-> endorsed by TourBox Tech or OpenAI. Version **0.8.1 (Build 17)** is tested
+> endorsed by TourBox Tech or OpenAI. Version **0.8.1 (Build 18)** is tested
 > with TourBox Elite, TourBox Console 5.2.6, and macOS 14 or later.
 
 <p align="center">

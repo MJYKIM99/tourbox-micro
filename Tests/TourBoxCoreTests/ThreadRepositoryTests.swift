@@ -56,8 +56,15 @@ import Testing
 
     let invalidURL = directory.appendingPathComponent("invalid.sqlite3")
     try createSQLiteDatabase(at: invalidURL, statements: "CREATE TABLE unrelated (id TEXT);")
-    #expect(throws: (any Error).self) {
-        try ThreadRepository(databaseURL: invalidURL).loadRecentThreads()
+    do {
+        _ = try ThreadRepository(databaseURL: invalidURL).loadRecentThreads()
+        Issue.record("Expected an invalid Codex schema to fail")
+    } catch {
+        let repositoryError = try #require(error as? ThreadRepositoryError)
+        #expect(repositoryError.diagnostic.operation == "prepare")
+        #expect(repositoryError.diagnostic.primaryCode != SQLITE_OK)
+        #expect(repositoryError.diagnostic.extendedCode != SQLITE_OK)
+        #expect(repositoryError.localizedDescription.contains(invalidURL.path) == false)
     }
 }
 

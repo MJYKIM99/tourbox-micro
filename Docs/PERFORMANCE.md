@@ -25,6 +25,10 @@ quiet otherwise.
   changed.
 - Cached rollout summaries are retained only for the bounded recent-thread
   window.
+- Status persistence performs indexed, atomic maintenance at most once every
+  fifteen minutes. It removes empty idle rows outside the recent-thread window,
+  deletes day-old orphaned active rows, and expires other stale active states
+  without adding work to the five-second timer path.
 - The HUD is created lazily and its AppKit and SwiftUI trees are released when
   hidden. Settings diagnostics update only while Settings is open.
 - The six compact lights use one native visual-effect plane with six rounded

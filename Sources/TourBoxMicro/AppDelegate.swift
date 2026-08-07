@@ -13,6 +13,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private enum StatusPolicy {
         static let permissionDebounce: Duration = .milliseconds(750)
+        static let activeStateMaximumAge: TimeInterval = 86_400
+        static let maintenanceInterval: TimeInterval = 15 * 60
     }
 
     private let repository = ThreadRepository()
@@ -53,6 +55,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var lastUnknownThreadRefreshAt: Date?
     private var lastHookSignalAt: Date?
     private var lastThreadRefreshAt: Date?
+    private var lastStatusMaintenanceAt: Date?
+    private var codexDatabaseFailureStartedAt: Date?
     private var didStartRolloutReconciliation = false
     private var rolloutReconciliationInFlight = false
     private var lastRolloutReconciliationAt: Date?
@@ -83,6 +87,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private struct ThreadRefreshOutcome: Sendable {
         let threads: [CodexThread]?
         let error: String?
+        let diagnostic: ThreadDatabaseErrorDiagnostic?
         let stableFingerprint: ThreadDatabaseFingerprint?
         let unchanged: Bool
     }
@@ -239,6 +244,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     return ThreadRefreshOutcome(
                         threads: nil,
                         error: nil,
+                        diagnostic: nil,
                         stableFingerprint: fingerprintBeforeRead,
                         unchanged: true
                     )
@@ -249,6 +255,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     return ThreadRefreshOutcome(
                         threads: threads,
                         error: nil,
+                        diagnostic: nil,
                         stableFingerprint: fingerprintBeforeRead == fingerprintAfterRead
                             ? fingerprintAfterRead
                             : nil,
@@ -258,6 +265,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     return ThreadRefreshOutcome(
                         threads: nil,
                         error: error.localizedDescription,
+                        diagnostic: (error as? ThreadRepositoryError)?.diagnostic,
                         stableFingerprint: nil,
                         unchanged: false
                     )
@@ -267,18 +275,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             threadRefreshInFlight = false
 
             if result.unchanged {
+                let statusChanged = performStatusMaintenanceIfNeeded()
                 startRolloutReconciliationIfNeeded()
+                if statusChanged { resolveSlots() }
             } else if let threads = result.threads {
                 lastThreadDatabaseFingerprint = result.stableFingerprint
                 let recoveredFromError = runtimeConnectionState.clearCodexStateError()
                 if recoveredFromError {
-                    lifecycleLogger.notice("Codex state database access recovered")
+                    let durationMilliseconds = codexDatabaseFailureStartedAt.map {
+                        Int((Date().timeIntervalSince($0) * 1_000).rounded())
+                    } ?? 0
+                    lifecycleLogger.notice(
+                        "Codex state database access recovered duration_ms=\(durationMilliseconds)"
+                    )
                 }
+                codexDatabaseFailureStartedAt = nil
                 var presentationChanged = rolloutPresentationCache.retain(
                     threadIDs: Set(threads.map(\.id))
                 )
                 if threads != recentThreads {
                     recentThreads = threads
+                    presentationChanged = true
+                }
+                if performStatusMaintenanceIfNeeded() {
                     presentationChanged = true
                 }
                 if presentationChanged {
@@ -288,10 +307,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 }
                 startRolloutReconciliationIfNeeded()
             } else if let error = result.error {
+                // A failed read must invalidate the last successful fingerprint;
+                // otherwise an unchanged database can be mistaken for recovery.
+                lastThreadDatabaseFingerprint = nil
                 let message = "Codex state: \(error)"
+                let isNewFailure = codexDatabaseFailureStartedAt == nil
+                if isNewFailure {
+                    codexDatabaseFailureStartedAt = Date()
+                    if let diagnostic = result.diagnostic {
+                        lifecycleLogger.error(
+                            "Codex state database refresh failed operation=\(diagnostic.operation, privacy: .public) code=\(diagnostic.primaryCode) extended=\(diagnostic.extendedCode)"
+                        )
+                    } else {
+                        lifecycleLogger.error("Codex state database refresh failed operation=unknown")
+                    }
+                }
                 if runtimeConnectionState.codexStateError != message {
                     runtimeConnectionState.setCodexStateError(message)
-                    lifecycleLogger.error("Codex state database refresh failed")
                     render()
                 }
             }
@@ -310,6 +342,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             now: date
         ) else { return }
         refreshThreads()
+    }
+
+    @discardableResult
+    private func performStatusMaintenanceIfNeeded(at date: Date = Date()) -> Bool {
+        if let lastStatusMaintenanceAt,
+           date.timeIntervalSince(lastStatusMaintenanceAt) < StatusPolicy.maintenanceInterval {
+            return false
+        }
+        lastStatusMaintenanceAt = date
+        do {
+            let result = try statusStore.performMaintenance(
+                keepingThreadIDs: Set(recentThreads.map(\.id)),
+                activeBefore: date.addingTimeInterval(-StatusPolicy.activeStateMaximumAge),
+                at: date
+            )
+            guard result.changedCount > 0 else { return false }
+            lifecycleLogger.notice(
+                "Status maintenance completed expired=\(result.expiredActiveCount) removed_orphans=\(result.removedOrphanCount)"
+            )
+            return true
+        } catch {
+            lifecycleLogger.error("Status maintenance failed")
+            return false
+        }
     }
 
     private func startRolloutReconciliationIfNeeded() {

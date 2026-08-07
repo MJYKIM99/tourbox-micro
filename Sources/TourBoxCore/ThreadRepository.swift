@@ -15,6 +15,34 @@ public struct ThreadDatabaseFingerprint: Equatable, Sendable {
     fileprivate let writeAheadLog: FileStamp
 }
 
+public struct ThreadDatabaseErrorDiagnostic: Equatable, Sendable {
+    public let operation: String
+    public let primaryCode: Int32
+    public let extendedCode: Int32
+
+    public init(operation: String, primaryCode: Int32, extendedCode: Int32) {
+        self.operation = operation
+        self.primaryCode = primaryCode
+        self.extendedCode = extendedCode
+    }
+}
+
+public enum ThreadRepositoryError: LocalizedError, Sendable {
+    case sqlite(diagnostic: ThreadDatabaseErrorDiagnostic, message: String)
+
+    public var diagnostic: ThreadDatabaseErrorDiagnostic {
+        switch self {
+        case .sqlite(let diagnostic, _): diagnostic
+        }
+    }
+
+    public var errorDescription: String? {
+        switch self {
+        case .sqlite(_, let message): message
+        }
+    }
+}
+
 public struct ThreadRepository: Sendable {
     public let databaseURL: URL
 
@@ -47,9 +75,15 @@ public struct ThreadRepository: Sendable {
         )
         guard openResult == SQLITE_OK, let database else {
             defer { if let database { sqlite3_close(database) } }
-            throw RepositoryError.sqlite(message: database.map(sqliteMessage) ?? "无法打开 Codex 状态数据库")
+            throw sqliteError(
+                operation: "open",
+                resultCode: openResult,
+                database: database,
+                fallbackMessage: "无法打开 Codex 状态数据库"
+            )
         }
         defer { sqlite3_close(database) }
+        sqlite3_extended_result_codes(database, 1)
         sqlite3_busy_timeout(database, 500)
 
         let query = """
@@ -62,15 +96,24 @@ public struct ThreadRepository: Sendable {
         LIMIT ?;
         """
         var statement: OpaquePointer?
-        guard sqlite3_prepare_v2(database, query, -1, &statement, nil) == SQLITE_OK,
-              let statement else {
-            throw RepositoryError.sqlite(message: sqliteMessage(database))
+        let prepareResult = sqlite3_prepare_v2(database, query, -1, &statement, nil)
+        guard prepareResult == SQLITE_OK, let statement else {
+            throw sqliteError(
+                operation: "prepare",
+                resultCode: prepareResult,
+                database: database
+            )
         }
         defer { sqlite3_finalize(statement) }
 
         let safeLimit = min(max(limit, 6), 500)
-        guard sqlite3_bind_int(statement, 1, Int32(safeLimit)) == SQLITE_OK else {
-            throw RepositoryError.sqlite(message: sqliteMessage(database))
+        let bindResult = sqlite3_bind_int(statement, 1, Int32(safeLimit))
+        guard bindResult == SQLITE_OK else {
+            throw sqliteError(
+                operation: "bind",
+                resultCode: bindResult,
+                database: database
+            )
         }
 
         var threads: [CodexThread] = []
@@ -93,8 +136,12 @@ public struct ThreadRepository: Sendable {
                 )
             case SQLITE_DONE:
                 return threads
-            default:
-                throw RepositoryError.sqlite(message: sqliteMessage(database))
+            case let result:
+                throw sqliteError(
+                    operation: "read",
+                    resultCode: result,
+                    database: database
+                )
             }
         }
     }
@@ -112,6 +159,24 @@ public struct ThreadRepository: Sendable {
 
     private func sqliteMessage(_ database: OpaquePointer) -> String {
         String(cString: sqlite3_errmsg(database))
+    }
+
+    private func sqliteError(
+        operation: String,
+        resultCode: Int32,
+        database: OpaquePointer?,
+        fallbackMessage: String = "Codex 状态数据库读取失败"
+    ) -> ThreadRepositoryError {
+        let primaryCode = database.map(sqlite3_errcode) ?? (resultCode & 0xFF)
+        let extendedCode = database.map(sqlite3_extended_errcode) ?? resultCode
+        return .sqlite(
+            diagnostic: ThreadDatabaseErrorDiagnostic(
+                operation: operation,
+                primaryCode: primaryCode,
+                extendedCode: extendedCode
+            ),
+            message: database.map(sqliteMessage) ?? fallbackMessage
+        )
     }
 
     private func fileStamp(for url: URL) -> ThreadDatabaseFingerprint.FileStamp {
@@ -137,15 +202,5 @@ public struct ThreadRepository: Sendable {
             modificationDate: Date(timeIntervalSince1970: seconds + nanoseconds),
             fileSize: Int(information.st_size)
         )
-    }
-
-    private enum RepositoryError: LocalizedError {
-        case sqlite(message: String)
-
-        var errorDescription: String? {
-            switch self {
-            case .sqlite(let message): message
-            }
-        }
     }
 }

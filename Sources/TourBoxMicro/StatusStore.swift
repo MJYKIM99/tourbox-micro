@@ -95,6 +95,35 @@ final class StatusStore {
         }
     }
 
+    @discardableResult
+    func performMaintenance(
+        keepingThreadIDs threadIDs: Set<String>,
+        activeBefore cutoff: Date,
+        at date: Date = Date()
+    ) throws -> ActivityMaintenanceResult {
+        guard let repository else {
+            return ActivityMaintenanceResult(removedOrphanCount: 0, expiredActiveCount: 0)
+        }
+        do {
+            let result = try repository.performMaintenance(
+                keepingThreadIDs: threadIDs,
+                activeBefore: cutoff,
+                at: date
+            )
+            if result.changedCount > 0 {
+                activities = try repository.loadActivities()
+                sortAndTrim()
+            }
+            persistenceAvailable = true
+            persistenceDetail = "SQLite WAL · \(activities.count) 条状态"
+            return result
+        } catch {
+            persistenceAvailable = false
+            persistenceDetail = error.localizedDescription
+            throw error
+        }
+    }
+
     func acknowledge(_ thread: CodexThread) {
         let acknowledgedAt = Date()
         var changed = false

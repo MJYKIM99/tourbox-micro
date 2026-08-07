@@ -5,6 +5,17 @@ follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- Added atomic runtime status maintenance: semantically empty idle rows outside
+  the visible thread window are removed, stale orphaned active rows are deleted,
+  and remaining day-old running or input states become idle without a restart.
+- Invalidated the last database fingerprint after a failed Codex read so an
+  unchanged database is actively retried instead of being mistaken for a
+  recovered no-op refresh.
+- Added privacy-preserving SQLite operation/error codes and outage duration to
+  lifecycle logs without recording database paths, task titles, or content.
+
 ## [0.8.1] - 2026-08-07
 
 ### Added
