@@ -25,17 +25,17 @@ private enum SettingsSection: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .overview: "总览"
-        case .controls: "控制映射"
-        case .diagnostics: "诊断"
+        case .overview: L10n.tr("Overview")
+        case .controls: L10n.tr("Control mapping")
+        case .diagnostics: L10n.tr("Diagnostics")
         }
     }
 
     var subtitle: String {
         switch self {
-        case .overview: "运行方式与集成"
-        case .controls: "自定义硬件动作"
-        case .diagnostics: "连接与权限状态"
+        case .overview: L10n.tr("Runtime and integrations")
+        case .controls: L10n.tr("Customize hardware actions")
+        case .diagnostics: L10n.tr("Connection and permission status")
         }
     }
 
@@ -104,7 +104,7 @@ struct SettingsRootView: View {
         .preferredColorScheme(.light)
         .ignoresSafeArea()
         .alert(model.noticeTitle, isPresented: $model.showingNotice) {
-            Button("好") {}
+            Button(L10n.tr("OK")) {}
         } message: {
             Text(model.noticeMessage)
         }
@@ -176,7 +176,7 @@ private struct SettingsSidebar: View {
                 HStack {
                     Text(version)
                     Spacer()
-                    Text("本地运行")
+                    Text("Local only")
                 }
                 .font(.caption2)
                 .fontDesign(.monospaced)
@@ -246,9 +246,9 @@ private struct SidebarConnectionCard: View {
                         .foregroundStyle(model.tourBoxConnected ? MicroPalette.ink : Color.white.opacity(0.7))
                 }
                 VStack(alignment: .leading, spacing: 1) {
-                    Text(model.tourBoxConnected ? "设备在线" : "等待设备")
+                    Text(model.tourBoxConnected ? L10n.tr("Device online") : L10n.tr("Waiting for device"))
                         .font(.caption.weight(.semibold))
-                    Text(model.tourBoxConnected ? "TourBox 已连接" : model.connectionStatus)
+                    Text(model.tourBoxConnected ? L10n.tr("TourBox connected") : model.connectionStatus)
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
@@ -264,7 +264,7 @@ private struct SidebarConnectionCard: View {
             }
 
             HStack {
-                Text("任务槽位")
+                Text("Task slots")
                 Spacer()
                 Text("\(model.assignedSlotCount) / 6")
                     .fontWeight(.semibold)
@@ -286,9 +286,9 @@ private struct OverviewPage: View {
 
     private var slotModeDetail: String {
         switch model.slotMode {
-        case .priority: "优先处理排序"
-        case .recent: "最近使用排序"
-        case .pinned: "置顶任务排序"
+        case .priority: L10n.tr("Priority order")
+        case .recent: L10n.tr("Recently used order")
+        case .pinned: L10n.tr("Pinned task order")
         }
     }
 
@@ -297,8 +297,8 @@ private struct OverviewPage: View {
             VStack(alignment: .leading, spacing: 22) {
                 PageHeader(
                     eyebrow: "TOURBOX × CODEX",
-                    title: "总览",
-                    subtitle: "让硬件操作与你的 Codex 工作流保持同步。"
+                    title: "Overview",
+                    subtitle: "Keep your hardware controls in sync with your Codex workflow."
                 )
 
                 OverviewHero(model: model)
@@ -306,35 +306,37 @@ private struct OverviewPage: View {
                 HStack(spacing: 12) {
                     MetricCard(
                         title: "TourBox",
-                        value: model.tourBoxConnected ? "已连接" : "未连接",
+                        value: model.tourBoxConnected ? L10n.tr("Connected") : L10n.tr("Disconnected"),
                         detail: "TCP 50500",
                         symbol: "dial.medium",
                         color: MicroPalette.ink
                     )
                     MetricCard(
-                        title: "任务槽位",
+                        title: "Task slots",
                         value: "\(model.assignedSlotCount) / 6",
                         detail: slotModeDetail,
                         symbol: "square.stack.3d.up",
                         color: MicroPalette.graphite
                     )
                     MetricCard(
-                        title: "系统状态",
-                        value: model.systemReady ? "全部就绪" : "\(model.blockingIssueCount) 项待处理",
-                        detail: model.systemReady ? "集成运行正常" : "前往诊断查看",
+                        title: "System status",
+                        value: model.systemReady
+                            ? L10n.tr("All ready")
+                            : L10n.format("%d items need attention", model.blockingIssueCount),
+                        detail: model.systemReady ? L10n.tr("Integrations are healthy") : L10n.tr("Review Diagnostics"),
                         symbol: model.systemReady ? "checkmark.seal.fill" : "exclamationmark.triangle.fill",
                         color: model.systemReady ? MicroPalette.ink : MicroPalette.graphite
                     )
                 }
 
-                SectionLabel(title: "运行方式", subtitle: "常用显示与启动选项")
+                SectionLabel(title: "Runtime", subtitle: "Display and launch options")
 
                 HStack(alignment: .top, spacing: 14) {
                     SurfaceCard {
                         VStack(spacing: 0) {
                             SettingToggleRow(
-                                title: "六任务状态 HUD",
-                                detail: "在屏幕边缘显示任务进度与提醒",
+                                title: "Six-task status HUD",
+                                detail: "Show task progress and alerts at the edge of the screen",
                                 symbol: "rectangle.on.rectangle",
                                 isOn: Binding(
                                     get: { model.hudVisible },
@@ -343,20 +345,20 @@ private struct OverviewPage: View {
                             )
                             Divider().padding(.leading, 44)
                             VStack(alignment: .leading, spacing: 10) {
-                                Label("HUD 显示样式", systemImage: "square.grid.3x2")
+                                Label("HUD style", systemImage: "square.grid.3x2")
                                     .font(.system(size: 13, weight: .semibold))
-                                Picker("HUD 显示样式", selection: Binding(
+                                Picker("HUD style", selection: Binding(
                                     get: { model.hudStyle },
                                     set: { model.setHUDStyle($0) }
                                 )) {
-                                    Text("玻璃灯阵").tag(HUDStyle.glassLights)
-                                    Text("详细列表").tag(HUDStyle.taskList)
+                                    Text("Glass lights").tag(HUDStyle.glassLights)
+                                    Text("Detailed list").tag(HUDStyle.taskList)
                                 }
                                 .labelsHidden()
                                 .pickerStyle(.segmented)
                                 Text(model.hudStyle == .glassLights
-                                     ? "六个发光方块固定在左下角，以颜色显示任务状态。"
-                                     : "完整显示任务标题、项目和运行状态。")
+                                     ? L10n.tr("Six glowing tiles stay at the lower-left and show task state with color.")
+                                     : L10n.tr("Show full task titles, projects, and runtime states."))
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                                     .fixedSize(horizontal: false, vertical: true)
@@ -365,8 +367,8 @@ private struct OverviewPage: View {
                             .padding(.vertical, 13)
                             Divider().padding(.leading, 44)
                             SettingToggleRow(
-                                title: "悬浮任务详情",
-                                detail: "指向灯块时显示任务、项目与当前状态",
+                                title: "Hover task details",
+                                detail: "Show task, project, and current state when pointing at a light",
                                 symbol: "cursorarrow.motionlines",
                                 isOn: Binding(
                                     get: { model.hudHoverDetailsEnabled },
@@ -375,8 +377,8 @@ private struct OverviewPage: View {
                             )
                             Divider().padding(.leading, 44)
                             SettingToggleRow(
-                                title: "灯光状态动效",
-                                detail: "按任务状态显示呼吸、流光与提醒脉冲",
+                                title: "Light state animations",
+                                detail: "Animate state changes, hover, and alerts without continuous idle work",
                                 symbol: "sparkles",
                                 isOn: Binding(
                                     get: { model.hudAnimationsEnabled },
@@ -385,8 +387,8 @@ private struct OverviewPage: View {
                             )
                             Divider().padding(.leading, 44)
                             SettingToggleRow(
-                                title: "状态变化提示",
-                                detail: "完成、等待输入或报错时短暂显示任务卡",
+                                title: "State change notifications",
+                                detail: "Briefly show a task card for completion, input requests, or errors",
                                 symbol: "bell.badge",
                                 isOn: Binding(
                                     get: { model.hudStatusNotificationsEnabled },
@@ -395,7 +397,7 @@ private struct OverviewPage: View {
                             )
                             Divider().padding(.leading, 44)
                             SettingToggleRow(
-                                title: "登录时自动启动",
+                                title: "Launch at login",
                                 detail: model.loginStatus,
                                 symbol: "power",
                                 isOn: Binding(
@@ -408,19 +410,19 @@ private struct OverviewPage: View {
 
                     SurfaceCard {
                         VStack(alignment: .leading, spacing: 13) {
-                            Label("任务槽位排序", systemImage: "arrow.up.arrow.down")
+                            Label("Task slot order", systemImage: "arrow.up.arrow.down")
                                 .font(.system(size: 13, weight: .semibold))
-                            Text("决定六个硬件槽位优先装入哪些 Codex 任务。")
+                            Text("Choose which Codex tasks fill the six hardware slots first.")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                                 .fixedSize(horizontal: false, vertical: true)
-                            Picker("任务槽位排序", selection: Binding(
+                            Picker("Task slot order", selection: Binding(
                                 get: { model.slotMode },
                                 set: { model.setSlotMode($0) }
                             )) {
-                                Text("优先处理").tag(SlotMode.priority)
-                                Text("最近使用").tag(SlotMode.recent)
-                                Text("置顶任务").tag(SlotMode.pinned)
+                                Text("Priority").tag(SlotMode.priority)
+                                Text("Recent").tag(SlotMode.recent)
+                                Text("Pinned").tag(SlotMode.pinned)
                             }
                             .labelsHidden()
                             .pickerStyle(.segmented)
@@ -433,16 +435,16 @@ private struct OverviewPage: View {
                     HStack(spacing: 16) {
                         SymbolTile(symbol: "link.badge.plus", color: MicroPalette.accent)
                         VStack(alignment: .leading, spacing: 3) {
-                            Text("Codex 集成")
+                            Text("Codex integration")
                                 .font(.system(size: 14, weight: .semibold))
-                            Text("自动安装 Hooks 与基础快捷键；推理旋钮由你在 Codex 中人工绑定。")
+                            Text("Install hooks and base shortcuts automatically; bind the reasoning knob once in Codex.")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
                         Spacer()
-                        Button("重新安装集成") { model.installIntegration() }
+                        Button("Reinstall integration") { model.installIntegration() }
                             .buttonStyle(.bordered)
-                        Button("打开 Codex") { model.openCodex() }
+                        Button("Open Codex") { model.openCodex() }
                             .buttonStyle(.borderedProminent)
                     }
                 }
@@ -471,7 +473,7 @@ private struct OverviewHero: View {
                             .fill(model.tourBoxConnected ? Color.white : Color.clear)
                             .overlay(Circle().stroke(Color.white.opacity(0.7), lineWidth: 1))
                             .frame(width: 7, height: 7)
-                        Text(model.tourBoxConnected ? "ONLINE" : "STANDBY")
+                        Text(model.tourBoxConnected ? L10n.tr("ONLINE") : L10n.tr("STANDBY"))
                     }
                     .font(.system(size: 9, weight: .bold, design: .monospaced))
                 }
@@ -479,10 +481,10 @@ private struct OverviewHero: View {
 
                 Spacer()
 
-                Text("把 TourBox 变成\nCodex 的实体控制台")
+                Text("Turn TourBox into a\nphysical Codex console")
                     .font(.system(size: 24, weight: .black))
                     .tracking(-0.45)
-                Text("旋转 / 切换 / 审批 / 任务导航")
+                Text("ROTATE / SWITCH / APPROVE / NAVIGATE")
                     .font(.system(size: 10, weight: .medium, design: .monospaced))
                     .tracking(0.6)
                     .foregroundStyle(Color.white.opacity(0.62))
@@ -539,35 +541,35 @@ private struct ControlsPage: View {
                 HStack(alignment: .top) {
                     PageHeader(
                         eyebrow: "HARDWARE MAPPING",
-                        title: "控制映射",
-                        subtitle: "选择每个实体控件触发的 Codex 或通用动作。"
+                        title: "Control mapping",
+                        subtitle: "Choose the Codex or general action triggered by each physical control."
                     )
                     Spacer()
-                    Button("恢复默认") { model.resetMapping() }
+                    Button("Restore defaults") { model.resetMapping() }
                         .buttonStyle(.bordered)
                 }
 
                 InfoBanner(
                     symbol: "lock.shield",
-                    title: "安全动作保持固定",
-                    detail: "Short 按住说话；Tour + C1/C2/方向键选择六任务；Tour + 旋钮/滚轮/转盘/横键触发快速聊天、当前查找、命令菜单和文件搜索。"
+                    title: "Safety actions stay fixed",
+                    detail: "Hold Short for push-to-talk; Tour + C1/C2/directions selects six tasks; Tour + knob/scroll/dial/top opens Quick Chat, Find, Commands, and File Search."
                 )
 
-                MappingGroupHeader(title: "旋转区", subtitle: "按下动作可自定义；旋转方向用于连续导航")
+                MappingGroupHeader(title: "Rotary controls", subtitle: "Press actions are customizable; rotation provides continuous navigation")
                 LazyVGrid(columns: columns, spacing: 12) {
                     ForEach([TourBoxControl.knob, .scroll, .dial], id: \.self) { control in
                         MappingTile(model: model, control: control)
                     }
                 }
 
-                MappingGroupHeader(title: "控制区", subtitle: "高频操作与确认动作")
+                MappingGroupHeader(title: "Control area", subtitle: "Frequent operations and confirmation actions")
                 LazyVGrid(columns: columns, spacing: 12) {
                     ForEach([TourBoxControl.top, .tall, .side, .c1, .c2], id: \.self) { control in
                         MappingTile(model: model, control: control)
                     }
                 }
 
-                MappingGroupHeader(title: "方向键", subtitle: "截图、最近聊天切换与审阅")
+                MappingGroupHeader(title: "Directional pad", subtitle: "Screenshots, recent chat switching, and review")
                 LazyVGrid(columns: columns, spacing: 12) {
                     ForEach([TourBoxControl.up, .right, .down, .left], id: \.self) { control in
                         MappingTile(model: model, control: control)
@@ -635,14 +637,14 @@ private struct DiagnosticsPage: View {
                 HStack(alignment: .top) {
                     PageHeader(
                         eyebrow: "SYSTEM HEALTH",
-                        title: "诊断",
-                        subtitle: "检查从 TourBox 输入到 Codex 动作的完整本地链路。"
+                        title: "Diagnostics",
+                        subtitle: "Check the complete local path from TourBox input to Codex actions."
                     )
                     Spacer()
                     Button {
                         model.refreshDiagnostics()
                     } label: {
-                        Label("刷新", systemImage: "arrow.clockwise")
+                        Label("Refresh", systemImage: "arrow.clockwise")
                     }
                     .buttonStyle(.bordered)
                 }
@@ -659,21 +661,21 @@ private struct DiagnosticsPage: View {
                     HStack(spacing: 15) {
                         SymbolTile(symbol: "wrench.and.screwdriver", color: MicroPalette.accent)
                         VStack(alignment: .leading, spacing: 3) {
-                            Text("修复工具")
+                            Text("Repair tools")
                                 .font(.system(size: 14, weight: .semibold))
-                            Text("修复 Hooks 与基础快捷键；推理旋钮需在 Codex 中人工绑定。")
+                            Text("Repair hooks and base shortcuts; bind the reasoning knob manually in Codex.")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
                         Spacer()
-                        Button("请求辅助功能权限") { model.requestAccessibility() }
+                        Button("Request Accessibility") { model.requestAccessibility() }
                             .buttonStyle(.bordered)
-                        Button("重新安装 Codex 集成") { model.installIntegration() }
+                        Button("Reinstall Codex integration") { model.installIntegration() }
                             .buttonStyle(.borderedProminent)
                     }
                 }
 
-                Text("所有服务仅监听本机回环地址，不会把输入或任务信息发送到远程服务器。")
+                Text("All services listen only on loopback and never send input or task information to a remote server.")
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
                     .frame(maxWidth: .infinity, alignment: .center)
@@ -704,14 +706,18 @@ private struct HealthSummary: View {
                     .foregroundStyle(model.systemReady ? Color.white : MicroPalette.ink)
             }
             VStack(alignment: .leading, spacing: 4) {
-                Text(model.systemReady ? "控制链路运行正常" : "还有 \(model.blockingIssueCount) 项需要处理")
+                Text(model.systemReady
+                    ? L10n.tr("The control path is healthy")
+                    : L10n.format("%d items need attention", model.blockingIssueCount))
                     .font(.system(size: 17, weight: .semibold))
-                Text(model.systemReady ? "TourBox 输入、Codex 集成与系统权限均已就绪。" : "下方标记项目会阻止部分或全部控制动作。")
+                Text(model.systemReady
+                    ? L10n.tr("TourBox input, Codex integration, and system permissions are ready.")
+                    : L10n.tr("Items marked below may block some or all control actions."))
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
             Spacer()
-            Text(model.systemReady ? "READY" : "CHECK")
+            Text(model.systemReady ? L10n.tr("READY") : L10n.tr("CHECK"))
                 .font(.system(size: 9, weight: .bold, design: .monospaced))
                 .tracking(1.4)
                 .foregroundStyle(model.systemReady ? Color.white : MicroPalette.ink)
@@ -745,9 +751,9 @@ private struct DiagnosticCard: View {
 
     private var stateLabel: String {
         switch item.state {
-        case .ready: "正常"
-        case .actionRequired: "需处理"
-        case .inactive: "可选"
+        case .ready: L10n.tr("Ready")
+        case .actionRequired: L10n.tr("Action required")
+        case .inactive: L10n.tr("Optional")
         }
     }
 
@@ -792,17 +798,17 @@ private struct PageHeader: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
-            Text(eyebrow)
+            Text(L10n.tr(eyebrow))
                 .font(.system(size: 8.5, weight: .bold, design: .monospaced))
                 .tracking(1.35)
                 .foregroundStyle(Color.white)
                 .padding(.horizontal, 7)
                 .padding(.vertical, 3)
                 .background(MicroPalette.ink, in: RoundedRectangle(cornerRadius: 1))
-            Text(title)
+            Text(L10n.tr(title))
                 .font(.system(size: 25, weight: .black))
                 .tracking(-0.35)
-            Text(subtitle)
+            Text(L10n.tr(subtitle))
                 .font(.system(size: 12.5))
                 .foregroundStyle(.secondary)
         }
@@ -815,9 +821,9 @@ private struct SectionLabel: View {
 
     var body: some View {
         HStack(alignment: .firstTextBaseline) {
-            Text(title)
+            Text(L10n.tr(title))
                 .font(.system(size: 15, weight: .semibold))
-            Text(subtitle)
+            Text(L10n.tr(subtitle))
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
@@ -830,9 +836,9 @@ private struct MappingGroupHeader: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
-            Text(title)
+            Text(L10n.tr(title))
                 .font(.system(size: 15, weight: .semibold))
-            Text(subtitle)
+            Text(L10n.tr(subtitle))
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
@@ -850,12 +856,12 @@ private struct MetricCard: View {
         HStack(spacing: 11) {
             SymbolTile(symbol: symbol, color: color, size: 38)
             VStack(alignment: .leading, spacing: 2) {
-                Text(title)
+                Text(L10n.tr(title))
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                Text(value)
+                Text(L10n.tr(value))
                     .font(.system(size: 14, weight: .semibold))
-                Text(detail)
+                Text(L10n.tr(detail))
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
             }
@@ -889,15 +895,15 @@ private struct SettingToggleRow: View {
                         .stroke(MicroPalette.line, lineWidth: 1)
                 }
             VStack(alignment: .leading, spacing: 2) {
-                Text(title)
+                Text(L10n.tr(title))
                     .font(.system(size: 13, weight: .semibold))
-                Text(detail)
+                Text(L10n.tr(detail))
                     .font(.caption2)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
             }
             Spacer()
-            Toggle(title, isOn: $isOn)
+            Toggle(L10n.tr(title), isOn: $isOn)
                 .labelsHidden()
                 .toggleStyle(.switch)
                 .controlSize(.small)
@@ -923,8 +929,8 @@ private struct InfoBanner: View {
                         .stroke(MicroPalette.ink, lineWidth: 1)
                 }
             VStack(alignment: .leading, spacing: 2) {
-                Text(title).font(.system(size: 13, weight: .semibold))
-                Text(detail).font(.caption).foregroundStyle(.secondary)
+                Text(L10n.tr(title)).font(.system(size: 13, weight: .semibold))
+                Text(L10n.tr(detail)).font(.caption).foregroundStyle(.secondary)
             }
             Spacer()
         }
@@ -977,17 +983,17 @@ private struct SurfaceCard<Content: View>: View {
 private extension TourBoxControl {
     var settingsName: String {
         switch self {
-        case .knob: "旋钮按下"
-        case .scroll: "滚轮按下"
-        case .dial: "转盘按下"
-        case .tall: "长键"
-        case .short: "短键"
-        case .top: "横键"
-        case .side: "侧键"
-        case .up: "方向键 · 上"
-        case .down: "方向键 · 下"
-        case .left: "方向键 · 左"
-        case .right: "方向键 · 右"
+        case .knob: L10n.tr("Knob press")
+        case .scroll: L10n.tr("Scroll press")
+        case .dial: L10n.tr("Dial press")
+        case .tall: L10n.tr("Tall button")
+        case .short: L10n.tr("Short button")
+        case .top: L10n.tr("Top button")
+        case .side: L10n.tr("Side button")
+        case .up: L10n.tr("Direction · Up")
+        case .down: L10n.tr("Direction · Down")
+        case .left: L10n.tr("Direction · Left")
+        case .right: L10n.tr("Direction · Right")
         case .tour: "Tour"
         case .c1: "C1"
         case .c2: "C2"
@@ -996,10 +1002,10 @@ private extension TourBoxControl {
 
     var settingsHint: String {
         switch self {
-        case .knob, .scroll, .dial: "按下时触发"
-        case .up, .down, .left, .right: "单击触发"
-        case .c1, .c2: "快捷功能键"
-        default: "单击触发"
+        case .knob, .scroll, .dial: L10n.tr("Triggered on press")
+        case .up, .down, .left, .right: L10n.tr("Triggered on click")
+        case .c1, .c2: L10n.tr("Shortcut button")
+        default: L10n.tr("Triggered on click")
         }
     }
 
@@ -1033,31 +1039,31 @@ private extension TourBoxControl {
 private extension ButtonAction {
     var settingsName: String {
         switch self {
-        case .none: "不执行"
-        case .toggleFast: "切换 Fast 模式"
-        case .togglePlan: "切换 Plan 模式"
-        case .forkThread: "Fork 当前任务"
-        case .approveOrSend: "批准 / 发送"
-        case .rejectOrCancel: "拒绝 / 取消"
-        case .openReview: "打开 Review"
-        case .openModelPicker: "选择模型"
-        case .quickChat: "快速聊天"
-        case .findInChat: "当前聊天内查找"
-        case .openCommandMenu: "打开命令菜单"
-        case .searchFiles: "搜索项目文件"
-        case .newIndependentChat: "新建独立聊天"
-        case .copy: "复制"
-        case .paste: "粘贴"
-        case .screenshot: "截图"
-        case .previousRecentChat: "上一个最近聊天"
-        case .nextRecentChat: "下一个最近聊天"
-        case .searchChats: "搜索所有聊天"
-        case .jumpToLatest: "跳到最新消息"
-        case .previousChat: "上一个任务"
-        case .nextChat: "下一个任务"
-        case .navigateBack: "后退"
-        case .navigateForward: "前进"
-        case .toggleSidebar: "切换侧边栏"
+        case .none: L10n.tr("Do nothing")
+        case .toggleFast: L10n.tr("Toggle Fast mode")
+        case .togglePlan: L10n.tr("Toggle Plan mode")
+        case .forkThread: L10n.tr("Fork current task")
+        case .approveOrSend: L10n.tr("Approve / Send")
+        case .rejectOrCancel: L10n.tr("Reject / Cancel")
+        case .openReview: L10n.tr("Open Review")
+        case .openModelPicker: L10n.tr("Choose model")
+        case .quickChat: L10n.tr("Quick Chat")
+        case .findInChat: L10n.tr("Find in current chat")
+        case .openCommandMenu: L10n.tr("Open command menu")
+        case .searchFiles: L10n.tr("Search project files")
+        case .newIndependentChat: L10n.tr("New independent chat")
+        case .copy: L10n.tr("Copy")
+        case .paste: L10n.tr("Paste")
+        case .screenshot: L10n.tr("Screenshot")
+        case .previousRecentChat: L10n.tr("Previous recent chat")
+        case .nextRecentChat: L10n.tr("Next recent chat")
+        case .searchChats: L10n.tr("Search all chats")
+        case .jumpToLatest: L10n.tr("Jump to latest message")
+        case .previousChat: L10n.tr("Previous task")
+        case .nextChat: L10n.tr("Next task")
+        case .navigateBack: L10n.tr("Back")
+        case .navigateForward: L10n.tr("Forward")
+        case .toggleSidebar: L10n.tr("Toggle sidebar")
         }
     }
 

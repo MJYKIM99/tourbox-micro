@@ -13,6 +13,18 @@ public enum ActivityRepositoryError: LocalizedError {
     }
 }
 
+public struct ActivityMaintenanceResult: Equatable, Sendable {
+    public let removedOrphanCount: Int
+    public let expiredActiveCount: Int
+
+    public init(removedOrphanCount: Int, expiredActiveCount: Int) {
+        self.removedOrphanCount = removedOrphanCount
+        self.expiredActiveCount = expiredActiveCount
+    }
+
+    public var changedCount: Int { removedOrphanCount + expiredActiveCount }
+}
+
 /// A small WAL-backed store for the latest known lifecycle state of a task.
 ///
 /// It intentionally stores no prompt or response text. A row contains only the
@@ -192,6 +204,88 @@ public final class ActivityRepository: @unchecked Sendable {
             try check(sqlite3_bind_int64(statement, 2, cutoffTimestamp))
             guard sqlite3_step(statement) == SQLITE_DONE else { throw sqliteError() }
             return Int(sqlite3_changes(database))
+        }
+    }
+
+    /// Active-looking rows are diagnostic hints, not durable task truth. Avoid
+    /// restoring a day-old permission request or run as current attention.
+    @discardableResult
+    public func expireStaleActiveStates(before cutoff: Date, at date: Date = Date()) throws -> Int {
+        try locked {
+            let statement = try prepare("""
+                UPDATE task_status
+                SET state = 'idle', detail = NULL, updated_at_ms = ?
+                WHERE state IN ('thinking', 'needsInput') AND updated_at_ms < ?;
+                """)
+            defer { sqlite3_finalize(statement) }
+            let timestamp = Int64((date.timeIntervalSince1970 * 1_000).rounded())
+            let cutoffTimestamp = Int64((cutoff.timeIntervalSince1970 * 1_000).rounded())
+            try check(sqlite3_bind_int64(statement, 1, timestamp))
+            try check(sqlite3_bind_int64(statement, 2, cutoffTimestamp))
+            guard sqlite3_step(statement) == SQLITE_DONE else { throw sqliteError() }
+            return Int(sqlite3_changes(database))
+        }
+    }
+
+    /// Removes semantically empty idle rows and stale active rows for threads
+    /// outside the visible Codex window, then expires any remaining stale active
+    /// rows. Fresh active states and unread completions are always preserved.
+    /// The operation is atomic so the in-memory view reloads one coherent result.
+    public func performMaintenance(
+        keepingThreadIDs threadIDs: Set<String>,
+        activeBefore cutoff: Date,
+        at date: Date = Date()
+    ) throws -> ActivityMaintenanceResult {
+        try locked {
+            try execute("BEGIN IMMEDIATE;")
+            do {
+                let safeThreadIDs = Array(threadIDs.filter { !$0.isEmpty }.sorted().prefix(500))
+                let placeholders = safeThreadIDs.map { _ in "?" }.joined(separator: ", ")
+                let keepClause = safeThreadIDs.isEmpty
+                    ? ""
+                    : "AND thread_id NOT IN (\(placeholders))"
+                let delete = try prepare("""
+                    DELETE FROM task_status
+                    WHERE thread_id IS NOT NULL
+                      AND (
+                        state = 'idle'
+                        OR (
+                          state IN ('thinking', 'needsInput')
+                          AND updated_at_ms < ?
+                        )
+                      )
+                      \(keepClause);
+                    """)
+                defer { sqlite3_finalize(delete) }
+                let cutoffTimestamp = Int64((cutoff.timeIntervalSince1970 * 1_000).rounded())
+                try check(sqlite3_bind_int64(delete, 1, cutoffTimestamp))
+                for (offset, threadID) in safeThreadIDs.enumerated() {
+                    try bind(threadID, to: delete, index: Int32(offset + 2))
+                }
+                guard sqlite3_step(delete) == SQLITE_DONE else { throw sqliteError() }
+                let removedOrphanCount = Int(sqlite3_changes(database))
+
+                let expire = try prepare("""
+                    UPDATE task_status
+                    SET state = 'idle', detail = NULL, updated_at_ms = ?
+                    WHERE state IN ('thinking', 'needsInput') AND updated_at_ms < ?;
+                    """)
+                defer { sqlite3_finalize(expire) }
+                let maintenanceTimestamp = Int64((date.timeIntervalSince1970 * 1_000).rounded())
+                try check(sqlite3_bind_int64(expire, 1, maintenanceTimestamp))
+                try check(sqlite3_bind_int64(expire, 2, cutoffTimestamp))
+                guard sqlite3_step(expire) == SQLITE_DONE else { throw sqliteError() }
+                let expiredActiveCount = Int(sqlite3_changes(database))
+
+                try execute("COMMIT;")
+                return ActivityMaintenanceResult(
+                    removedOrphanCount: removedOrphanCount,
+                    expiredActiveCount: expiredActiveCount
+                )
+            } catch {
+                try? execute("ROLLBACK;")
+                throw error
+            }
         }
     }
 

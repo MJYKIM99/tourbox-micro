@@ -230,6 +230,12 @@ final class HUDController {
         currentSelectedSlotIndex = selectedSlotIndex
         currentTourBoxConnected = tourBoxConnected
         currentStatusText = statusText
+        if let transientSlot,
+           !AgentStatusTransitionTracker.notificationIsCurrent(transientSlot, in: slots) {
+            transientTimer?.invalidate()
+            transientTimer = nil
+            self.transientSlot = nil
+        }
         contentView.update(
             slots: slots,
             selectedSlotIndex: selectedSlotIndex,
@@ -526,7 +532,7 @@ private final class HUDCanvasView: NSView {
     private var slots: [AgentSlot] = []
     private var selectedSlotIndex: Int?
     private var tourBoxConnected = false
-    private var statusText = "等待 TourBox"
+    private var statusText = L10n.tr("Waiting for TourBox")
     private var style: HUDStyle
     private var hoverTrackingArea: NSTrackingArea?
     private var reportedHoverSlotIndex: Int?
@@ -607,7 +613,9 @@ private final class HUDCanvasView: NSView {
         tourBoxConnected: Bool,
         statusText: String?
     ) {
-        let nextStatusText = statusText ?? (tourBoxConnected ? "TourBox 已连接" : "等待 TourBox")
+        let nextStatusText = statusText ?? (tourBoxConnected
+            ? L10n.tr("TourBox connected")
+            : L10n.tr("Waiting for TourBox"))
         guard slots != self.slots
                 || selectedSlotIndex != self.selectedSlotIndex
                 || tourBoxConnected != self.tourBoxConnected
@@ -926,14 +934,14 @@ private final class HUDCanvasView: NSView {
 
     private func drawHeader() {
         drawText(
-            "TOURBOX MICRO",
+            L10n.tr("TOURBOX MICRO"),
             in: NSRect(x: 15, y: 12, width: 150, height: 14),
             font: .monospacedSystemFont(ofSize: 11, weight: .bold),
             color: Palette.primary,
             letterSpacing: 0.8
         )
         drawText(
-            "TASK DECK / 06",
+            L10n.tr("TASK DECK / 06"),
             in: NSRect(x: 15, y: 26, width: 150, height: 11),
             font: .monospacedSystemFont(ofSize: 8, weight: .medium),
             color: Palette.secondary,
@@ -949,7 +957,7 @@ private final class HUDCanvasView: NSView {
         lamp.stroke()
 
         drawText(
-            tourBoxConnected ? "LINKED" : "STANDBY",
+            tourBoxConnected ? L10n.tr("LINKED") : L10n.tr("STANDBY"),
             in: NSRect(x: bounds.width - 92, y: 12, width: 77, height: 14),
             font: .monospacedSystemFont(ofSize: 9, weight: .semibold),
             color: tourBoxConnected ? Palette.primary : Palette.secondary,
@@ -957,7 +965,7 @@ private final class HUDCanvasView: NSView {
             letterSpacing: 0.5
         )
         drawText(
-            tourBoxConnected ? "TCP / 50500" : "NO SIGNAL",
+            tourBoxConnected ? L10n.tr("TCP / 50500") : L10n.tr("NO SIGNAL"),
             in: NSRect(x: bounds.width - 108, y: 26, width: 93, height: 11),
             font: .monospacedSystemFont(ofSize: 7.5, weight: .regular),
             color: Palette.secondary,
@@ -1041,14 +1049,14 @@ private final class HUDCanvasView: NSView {
             )
         } else {
             drawText(
-                "UNASSIGNED",
+                L10n.tr("UNASSIGNED"),
                 in: NSRect(x: textX, y: rowRect.minY + 6, width: textWidth, height: 13),
                 font: .monospacedSystemFont(ofSize: 9.5, weight: .medium),
                 color: Palette.secondary,
                 letterSpacing: 0.45
             )
             drawText(
-                "TOUR + \(slotKey(for: index))",
+                L10n.format("TOUR + %@", slotKey(for: index)),
                 in: NSRect(x: textX, y: rowRect.minY + 21, width: textWidth, height: 10),
                 font: .monospacedSystemFont(ofSize: 7.5, weight: .regular),
                 color: Palette.muted,
@@ -1064,21 +1072,21 @@ private final class HUDCanvasView: NSView {
             color: Palette.hairline
         )
         drawText(
-            "TOUR +",
+            L10n.tr("TOUR +"),
             in: NSRect(x: 15, y: Metrics.footerTop + 4, width: 49, height: 12),
             font: .monospacedSystemFont(ofSize: 8, weight: .semibold),
             color: Palette.secondary,
             letterSpacing: 0.35
         )
         drawText(
-            "C1   C2   ↑   →   ↓   ←",
+            L10n.tr("C1   C2   ↑   →   ↓   ←"),
             in: NSRect(x: 65, y: Metrics.footerTop + 3, width: 205, height: 13),
             font: .monospacedSystemFont(ofSize: 9, weight: .medium),
             color: Palette.primary,
             letterSpacing: 0.25
         )
         drawText(
-            "DRAG TO MOVE",
+            L10n.tr("DRAG TO MOVE"),
             in: NSRect(x: bounds.width - 112, y: Metrics.footerTop + 4, width: 97, height: 12),
             font: .monospacedSystemFont(ofSize: 7.5, weight: .regular),
             color: Palette.muted,
@@ -1142,14 +1150,14 @@ private final class HUDCanvasView: NSView {
     }
 
     private func statusCode(for state: AgentState, assigned: Bool) -> String {
-        guard assigned else { return "EMPTY" }
+        guard assigned else { return L10n.tr("EMPTY") }
         return switch state {
-        case .off: "OFF"
-        case .idle: "IDLE"
-        case .thinking: "RUN"
-        case .complete: "DONE"
-        case .needsInput: "INPUT"
-        case .error: "ERROR"
+        case .off: L10n.tr("OFF")
+        case .idle: L10n.tr("IDLE")
+        case .thinking: L10n.tr("RUN")
+        case .complete: L10n.tr("DONE")
+        case .needsInput: L10n.tr("INPUT")
+        case .error: L10n.tr("ERROR")
         }
     }
 
@@ -1188,10 +1196,10 @@ private final class HUDCanvasView: NSView {
 
     private func updateAccessibilityLabel() {
         let slotSummary = slots.map { slot in
-            let title = slot.thread?.title ?? "未分配"
+            let title = slot.thread?.title ?? L10n.tr("Unassigned")
             return "\(slot.index) \(title) \(statusCode(for: slot.state, assigned: slot.thread != nil))"
         }.joined(separator: ", ")
-        setAccessibilityLabel("TourBox Micro HUD，\(statusText)，\(slotSummary)")
+        setAccessibilityLabel(L10n.format("TourBox Micro HUD, %@, %@", statusText, slotSummary))
     }
 }
 
@@ -1203,12 +1211,12 @@ private final class TaskPeekView: NSView {
     private var hoverTrackingArea: NSTrackingArea?
     private let effectView = NSVisualEffectView()
     private let statusDot = NSView()
-    private let titleLabel = NSTextField(labelWithString: "未分配任务")
+    private let titleLabel = NSTextField(labelWithString: L10n.tr("Unassigned task"))
     private let projectIcon = NSImageView()
-    private let projectLabel = NSTextField(labelWithString: "没有项目")
-    private let statusLabel = NSTextField(labelWithString: "未分配")
+    private let projectLabel = NSTextField(labelWithString: L10n.tr("No project"))
+    private let statusLabel = NSTextField(labelWithString: L10n.tr("Unassigned"))
     private let divider = NSBox()
-    private let messageLabel = NSTextField(wrappingLabelWithString: "这个灯位目前没有分配任务")
+    private let messageLabel = NSTextField(wrappingLabelWithString: L10n.tr("No task is assigned to this light"))
     private let rendersLegacyDrawing = false
 
     var onHoverChanged: ((Bool) -> Void)?
@@ -1423,12 +1431,12 @@ private final class TaskPeekView: NSView {
             return latestMessage
         }
         return switch slot.state {
-        case .off: "这个灯位目前没有分配任务"
-        case .idle: "任务空闲，等待下一次运行"
-        case .thinking: "Codex 正在处理这个任务"
-        case .complete: "任务已完成，打开后会标记为已读"
-        case .needsInput: "任务正在等待你的确认或输入"
-        case .error: "任务遇到错误，需要检查"
+        case .off: L10n.tr("No task is assigned to this light")
+        case .idle: L10n.tr("Task is idle and waiting for the next run")
+        case .thinking: L10n.tr("Codex is working on this task")
+        case .complete: L10n.tr("Task completed; opening it marks it as read")
+        case .needsInput: L10n.tr("Task is waiting for your confirmation or input")
+        case .error: L10n.tr("Task encountered an error and needs attention")
         }
     }
 
@@ -1437,7 +1445,7 @@ private final class TaskPeekView: NSView {
         let accent = stateColor(slot.state, assigned: assigned)
         statusDot.layer?.backgroundColor = accent.cgColor
         statusDot.layer?.shadowColor = accent.cgColor
-        titleLabel.stringValue = slot.thread?.title ?? "未分配任务"
+        titleLabel.stringValue = slot.thread?.title ?? L10n.tr("Unassigned task")
         projectLabel.stringValue = projectName
         statusLabel.stringValue = String(format: "%02d", slot.index)
             + " · "
@@ -1449,7 +1457,7 @@ private final class TaskPeekView: NSView {
     }
 
     private var projectName: String {
-        guard let cwd = slot.thread?.cwd, !cwd.isEmpty else { return "没有项目" }
+        guard let cwd = slot.thread?.cwd, !cwd.isEmpty else { return L10n.tr("No project") }
         let name = URL(fileURLWithPath: cwd).standardizedFileURL.lastPathComponent
         return name.isEmpty ? cwd : name
     }
@@ -1460,22 +1468,22 @@ private final class TaskPeekView: NSView {
     }
 
     private func statusTitle(for state: AgentState, assigned: Bool, transient: Bool) -> String {
-        guard assigned else { return "未分配" }
+        guard assigned else { return L10n.tr("Unassigned") }
         if transient {
             return switch state {
-            case .complete: "刚刚完成"
-            case .needsInput: "需要操作"
-            case .error: "发生错误"
+            case .complete: L10n.tr("Just completed")
+            case .needsInput: L10n.tr("Action required")
+            case .error: L10n.tr("Error occurred")
             default: statusTitle(for: state, assigned: assigned, transient: false)
             }
         }
         return switch state {
-        case .off: "未激活"
-        case .idle: "空闲"
-        case .thinking: "运行中"
-        case .complete: "已完成"
-        case .needsInput: "等待输入"
-        case .error: "错误"
+        case .off: L10n.tr("Inactive")
+        case .idle: L10n.tr("Idle")
+        case .thinking: L10n.tr("Running")
+        case .complete: L10n.tr("Completed")
+        case .needsInput: L10n.tr("Waiting for input")
+        case .error: L10n.tr("Error")
         }
     }
 
@@ -1525,9 +1533,14 @@ private final class TaskPeekView: NSView {
         let assigned = slot.thread != nil
         let state = statusTitle(for: slot.state, assigned: assigned, transient: transient)
         setAccessibilityLabel(
-            "任务槽位 \(slot.index)，\(state)，"
-                + "\(slot.thread?.title ?? "未分配任务")，"
-                + "项目 \(projectName)，\(detailText)"
+            L10n.format(
+                "Task slot %d, %@, %@, project %@, %@",
+                slot.index,
+                state,
+                slot.thread?.title ?? L10n.tr("Unassigned task"),
+                projectName,
+                detailText
+            )
         )
     }
 }

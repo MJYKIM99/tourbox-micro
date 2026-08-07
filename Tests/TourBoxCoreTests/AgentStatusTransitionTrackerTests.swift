@@ -53,3 +53,23 @@ import Testing
     #expect(candidate?.thread?.id == "task-error")
     #expect(candidate?.state == .error)
 }
+
+@Test func transientNotificationExpiresWhenTaskReturnsToRunning() {
+    let thread = CodexThread(
+        id: "task-input",
+        title: "等待确认",
+        cwd: "/tmp/project",
+        recencyAtMilliseconds: 1
+    )
+    let notification = AgentSlot(index: 1, thread: thread, state: .needsInput)
+
+    #expect(AgentStatusTransitionTracker.notificationIsCurrent(
+        notification,
+        in: [notification]
+    ))
+    #expect(!AgentStatusTransitionTracker.notificationIsCurrent(
+        notification,
+        in: [AgentSlot(index: 1, thread: thread, state: .thinking)]
+    ))
+    #expect(!AgentStatusTransitionTracker.notificationIsCurrent(notification, in: []))
+}

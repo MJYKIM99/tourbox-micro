@@ -13,6 +13,7 @@ struct SettingsCallbacks {
     let setSlotMode: (SlotMode) -> Void
     let setMapping: (InputMappingConfiguration) -> Void
     let openCodex: () -> Void
+    let openPresetGuide: () -> Void
     let installIntegration: () throws -> String
     let requestAccessibility: () -> Void
 }
@@ -35,12 +36,12 @@ final class SettingsModel: ObservableObject {
 
     private struct RuntimeState: Equatable {
         var tourBoxConnected = false
-        var connectionStatus = "等待 TourBox"
+        var connectionStatus = L10n.tr("Waiting for TourBox")
         var assignedSlotCount = 0
         var tourBoxServerListening = false
         var hookServerListening = false
         var statusPersistenceReady = false
-        var statusPersistenceDetail = "等待状态数据库"
+        var statusPersistenceDetail = L10n.tr("Waiting for status database")
     }
 
     private struct SystemDiagnosticState: Equatable {
@@ -61,7 +62,7 @@ final class SettingsModel: ObservableObject {
     @Published var mapping: InputMappingConfiguration
     @Published private var runtime = RuntimeState()
     @Published var loginEnabled = false
-    @Published var loginStatus = "正在检查"
+    @Published var loginStatus = L10n.tr("Checking")
     @Published var diagnostics: [DiagnosticItem] = []
     @Published var noticeTitle = ""
     @Published var noticeMessage = ""
@@ -187,16 +188,16 @@ final class SettingsModel: ObservableObject {
         do {
             try LoginItemManager.setEnabled(enabled)
         } catch {
-            showNotice(title: "登录启动设置失败", message: error.localizedDescription)
+            showNotice(title: L10n.tr("Launch at login failed"), message: error.localizedDescription)
         }
         refreshDiagnostics()
     }
 
     func installIntegration() {
         do {
-            showNotice(title: "Codex 集成已安装", message: try callbacks.installIntegration())
+            showNotice(title: L10n.tr("Codex integration installed"), message: try callbacks.installIntegration())
         } catch {
-            showNotice(title: "安装失败", message: error.localizedDescription)
+            showNotice(title: L10n.tr("Installation failed"), message: error.localizedDescription)
         }
         refreshDiagnostics()
     }
@@ -210,15 +211,29 @@ final class SettingsModel: ObservableObject {
         callbacks.openCodex()
     }
 
+    func openPresetGuide() {
+        callbacks.openPresetGuide()
+    }
+
+    func diagnosticItem(id: String) -> DiagnosticItem? {
+        diagnostics.first { $0.id == id }
+    }
+
     func refreshDiagnostics() {
         let codexDirectory = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".codex")
-        let hooksText = (try? String(contentsOf: codexDirectory.appendingPathComponent("hooks.json"), encoding: .utf8)) ?? ""
         let keybindingsURL = codexDirectory.appendingPathComponent("keybindings.json")
+        let token = try? HookAuthentication.loadOrCreateToken()
+        let threadDatabaseURL = ThreadRepository.discoverDatabaseURL(in: codexDirectory)
         systemDiagnostics = SystemDiagnosticState(
             codexFound: NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.openai.codex") != nil,
-            databaseFound: FileManager.default.fileExists(atPath: codexDirectory.appendingPathComponent("state_5.sqlite").path),
+            databaseFound: FileManager.default.fileExists(atPath: threadDatabaseURL.path),
             accessibilityTrusted: AXIsProcessTrusted(),
-            hooksInstalled: hooksText.contains(ConfigurationInstaller.hookMarker),
+            hooksInstalled: token.map {
+                ConfigurationInstaller.managedHooksInstalled(
+                    at: codexDirectory.appendingPathComponent("hooks.json"),
+                    authenticationToken: $0
+                )
+            } ?? false,
             keysInstalled: ConfigurationInstaller.managedKeybindingsInstalled(at: keybindingsURL),
             reasoningKeysInstalled: ConfigurationInstaller.manualReasoningKeybindingsInstalled(at: keybindingsURL)
         )
@@ -232,70 +247,70 @@ final class SettingsModel: ObservableObject {
         let nextDiagnostics: [DiagnosticItem] = [
             .init(
                 id: "tourbox",
-                title: "TourBox 输入",
+                title: L10n.tr("TourBox input"),
                 detail: connectionStatus,
                 symbol: "dial.medium",
                 state: tourBoxConnected ? .ready : .actionRequired
             ),
             .init(
                 id: "ports",
-                title: "本地服务",
-                detail: "输入 127.0.0.1:50500 · Hooks 127.0.0.1:50501",
+                title: L10n.tr("Local services"),
+                detail: L10n.tr("Input 127.0.0.1:50500 · Hooks 127.0.0.1:50501"),
                 symbol: "network",
                 state: tourBoxServerListening && hookServerListening ? .ready : .actionRequired
             ),
             .init(
                 id: "codex",
-                title: "Codex 桌面 App",
-                detail: systemDiagnostics.codexFound ? "已找到" : "未找到",
+                title: L10n.tr("Codex desktop app"),
+                detail: systemDiagnostics.codexFound ? L10n.tr("Found") : L10n.tr("Not found"),
                 symbol: "app.badge.checkmark",
                 state: systemDiagnostics.codexFound ? .ready : .actionRequired
             ),
             .init(
                 id: "database",
-                title: "六任务索引",
-                detail: systemDiagnostics.databaseFound ? "state_5.sqlite 可读" : "状态数据库缺失",
+                title: L10n.tr("Six-task index"),
+                detail: systemDiagnostics.databaseFound ? L10n.tr("Codex state database is readable") : L10n.tr("Codex state database is missing"),
                 symbol: "square.stack.3d.up",
                 state: systemDiagnostics.databaseFound ? .ready : .actionRequired
             ),
             .init(
                 id: "status-database",
-                title: "任务状态持久化",
+                title: L10n.tr("Task state persistence"),
                 detail: statusPersistenceDetail,
                 symbol: "externaldrive.badge.checkmark",
                 state: statusPersistenceReady ? .ready : .actionRequired
             ),
             .init(
                 id: "hooks",
-                title: "生命周期 Hooks",
-                detail: systemDiagnostics.hooksInstalled ? "4 个 Hook 已安装" : "尚未安装",
+                title: L10n.tr("Lifecycle hooks"),
+                detail: systemDiagnostics.hooksInstalled ? L10n.tr("4 hooks installed") : L10n.tr("Not installed"),
                 symbol: "point.3.connected.trianglepath.dotted",
                 state: systemDiagnostics.hooksInstalled ? .ready : .actionRequired
             ),
             .init(
                 id: "keys",
-                title: "基础快捷键",
-                detail: systemDiagnostics.keysInstalled ? "F13 · F14 · F15 已安装" : "自动映射不完整",
+                title: L10n.tr("Base shortcuts"),
+                detail: systemDiagnostics.keysInstalled ? L10n.tr("F13 · F14 · F15 installed") : L10n.tr("Automatic mapping is incomplete"),
                 symbol: "keyboard",
                 state: systemDiagnostics.keysInstalled ? .ready : .actionRequired
             ),
             .init(
                 id: "reasoning-keys",
-                title: "推理旋钮",
-                detail: systemDiagnostics.reasoningKeysInstalled ? "F16 增加 · F17 降低" : "Codex 录制时：右转=F16 · 左转=F17",
+                title: L10n.tr("Reasoning knob"),
+                detail: systemDiagnostics.reasoningKeysInstalled ? L10n.tr("F16 increase · F17 decrease") : L10n.tr("While recording in Codex: right=F16 · left=F17"),
                 symbol: "dial.medium",
                 state: systemDiagnostics.reasoningKeysInstalled ? .ready : .actionRequired
             ),
             .init(
                 id: "accessibility",
-                title: "辅助功能权限",
-                detail: systemDiagnostics.accessibilityTrusted ? "已授权" : "需要授权",
+                title: L10n.tr("Accessibility permission"),
+                detail: systemDiagnostics.accessibilityTrusted ? L10n.tr("Granted") : L10n.tr("Permission required"),
                 symbol: "hand.raised",
                 state: systemDiagnostics.accessibilityTrusted ? .ready : .actionRequired
             ),
             .init(
                 id: "login",
-                title: "登录时启动",
+                title: L10n.tr("Launch at login"),
                 detail: loginStatus,
                 symbol: "power",
                 state: loginEnabled ? .ready : .inactive

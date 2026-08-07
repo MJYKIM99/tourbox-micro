@@ -106,17 +106,17 @@ private struct GlassLightsView: View {
 
     private func accessibilityLabel(for slot: AgentSlot) -> String {
         let state = switch slot.state {
-        case .off: "未分配"
-        case .idle: "空闲"
-        case .thinking: "运行中"
-        case .complete: "已完成"
-        case .needsInput: "等待输入"
-        case .error: "错误"
+        case .off: L10n.tr("Unassigned")
+        case .idle: L10n.tr("Idle")
+        case .thinking: L10n.tr("Running")
+        case .complete: L10n.tr("Completed")
+        case .needsInput: L10n.tr("Waiting for input")
+        case .error: L10n.tr("Error")
         }
         if let latest = slot.latestMessage, !latest.isEmpty {
-            return "任务槽位 \(slot.index)，\(state)，\(latest)"
+            return L10n.format("Task slot %d, %@, %@", slot.index, state, latest)
         }
-        return "任务槽位 \(slot.index)，\(state)"
+        return L10n.format("Task slot %d, %@", slot.index, state)
     }
 }
 

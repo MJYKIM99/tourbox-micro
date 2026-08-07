@@ -14,6 +14,7 @@ enum PreferencesStore {
     private static let hudHoverDetailsKey = "hudHoverDetails.v1"
     private static let hudStatusNotificationsKey = "hudStatusNotifications.v1"
     private static let hudAnimationsKey = "hudAnimations.v1"
+    private static let onboardingCompletedKey = "onboardingCompleted.v1"
 
     static func loadMapping() -> InputMappingConfiguration {
         guard let data = UserDefaults.standard.data(forKey: mappingKey),
@@ -86,5 +87,13 @@ enum PreferencesStore {
 
     static func saveHUDAnimations(_ enabled: Bool) {
         UserDefaults.standard.set(enabled, forKey: hudAnimationsKey)
+    }
+
+    static func loadOnboardingCompleted() -> Bool {
+        UserDefaults.standard.bool(forKey: onboardingCompletedKey)
+    }
+
+    static func saveOnboardingCompleted(_ completed: Bool) {
+        UserDefaults.standard.set(completed, forKey: onboardingCompletedKey)
     }
 }

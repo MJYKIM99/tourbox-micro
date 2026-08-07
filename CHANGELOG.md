@@ -5,6 +5,77 @@ follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-08-07
+
+### Added
+
+- Added complete English and Simplified Chinese localization with 247 catalog
+  keys and a CI check for locale parity, format placeholders, missing UI keys,
+  and hard-coded Han-character regressions.
+- Added a first-run Setup Assistant covering Codex, lifecycle Hooks,
+  Accessibility, the TourBox preset, and completion; it can be rerun from the
+  menu bar.
+- Added authenticated lifecycle hooks using a per-install 256-bit local token
+  stored with owner-only permissions.
+
+### Changed
+
+- Discover the newest versioned Codex `state_N.sqlite` database instead of
+  assuming `state_5.sqlite`, and report incompatible schemas without exposing
+  local paths.
+- Require a valid TourBox protocol event before a new TCP candidate can replace
+  an active hardware connection.
+- Updated the app metadata to version 0.9.0 (Build 19), with English as the
+  development region and explicit English and Simplified Chinese locales.
+
+### Security
+
+- Bounded lifecycle HTTP requests to 8 KiB of headers and 64 KiB of JSON, with
+  content-type validation, a three-second timeout, and an eight-connection cap.
+
+### Fixed
+
+- Added atomic runtime status maintenance: semantically empty idle rows outside
+  the visible thread window are removed, stale orphaned active rows are deleted,
+  and remaining day-old running or input states become idle without a restart.
+- Invalidated the last database fingerprint after a failed Codex read so an
+  unchanged database is actively retried instead of being mistaken for a
+  recovered no-op refresh.
+- Added privacy-preserving SQLite operation/error codes and outage duration to
+  lifecycle logs without recording database paths, task titles, or content.
+
+## [0.8.1] - 2026-08-07
+
+### Added
+
+- Privacy-preserving lifecycle diagnostics for deferred, canceled, and
+  committed permission signals, plus Codex database failure and recovery.
+
+### Fixed
+
+- Debounced permission hooks for 750 milliseconds and canceled them when a
+  matching tool-use or lifecycle event proves that Codex continued running.
+- Dismissed an existing “action required” card as soon as its task returns to
+  running, completes, disappears, or otherwise changes state.
+- Cleared transient Codex database errors after the next successful refresh
+  instead of leaving a recovered failure permanently visible in the HUD.
+- Expired day-old running and input-request rows during startup so abandoned
+  task state cannot return as current attention.
+- Matched deferred hook events by both thread ID and working directory when one
+  of the later hook payloads omits an identifier.
+- Bounded cached rollout summaries to the current recent-thread window instead
+  of retaining text for threads that can no longer appear in the HUD.
+
+### Performance
+
+- Added a main-database and WAL change fingerprint so the fallback poll performs
+  a full Codex SQLite query only after an actual database change.
+- Added adaptive thread discovery: no-hook and stale-hook installations retain
+  the previous five-second response, while healthy hooks use immediate unknown-
+  thread discovery and a tolerant fifteen-second fallback.
+- Included device and inode identity in database and rollout fingerprints, and
+  followed symbolic-link targets so atomic file replacement cannot be missed.
+
 ## [0.8.0] - 2026-08-06
 
 ### Added
@@ -62,6 +133,8 @@ follows [Semantic Versioning](https://semver.org/).
 - Swift Testing coverage for protocol, routing, configuration, persistence,
   rollout, display text, slot ordering, and transition behavior.
 
-[Unreleased]: https://github.com/MJYKIM99/tourbox-micro/compare/v0.8.0...HEAD
+[Unreleased]: https://github.com/MJYKIM99/tourbox-micro/compare/v0.9.0...HEAD
+[0.9.0]: https://github.com/MJYKIM99/tourbox-micro/compare/v0.8.1...v0.9.0
+[0.8.1]: https://github.com/MJYKIM99/tourbox-micro/compare/v0.8.0...v0.8.1
 [0.8.0]: https://github.com/MJYKIM99/tourbox-micro/compare/v0.7.2...v0.8.0
 [0.7.2]: https://github.com/MJYKIM99/tourbox-micro/releases/tag/v0.7.2

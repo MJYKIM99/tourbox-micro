@@ -1,17 +1,30 @@
 import AppKit
+import OSLog
 import TourBoxCore
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private enum RefreshPolicy {
-        static let threadInterval: TimeInterval = 5
+        static let timerInterval: TimeInterval = 5
         static let rolloutInterval: TimeInterval = 15
         static let timerTolerance: TimeInterval = 1
+        static let unknownThreadCooldown: TimeInterval = 2
+    }
+
+    private enum StatusPolicy {
+        static let permissionDebounce: Duration = .milliseconds(750)
+        static let activeStateMaximumAge: TimeInterval = 86_400
+        static let maintenanceInterval: TimeInterval = 15 * 60
     }
 
     private let repository = ThreadRepository()
+    private let threadRefreshCadence = ThreadRefreshCadencePolicy()
     private let statusStore = StatusStore()
     private let codexController = CodexController()
+    private let lifecycleLogger = Logger(
+        subsystem: Bundle.main.bundleIdentifier ?? "com.yi.tourboxmicro",
+        category: "lifecycle"
+    )
     private var hudStyle = PreferencesStore.loadHUDStyle()
     private var hudVisible = PreferencesStore.loadHUDVisible()
     private var hudHoverDetailsEnabled = PreferencesStore.loadHUDHoverDetails()
@@ -25,17 +38,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let rolloutChangeMonitor = RolloutChangeMonitor(maximumThreads: 120)
     private let rolloutReconciler = RolloutStateReconciler(maximumThreads: 120)
     private let rolloutPresentationReader = RolloutPresentationReader(maximumThreads: 120)
-    private var latestRolloutMessages: [String: String] = [:]
+    private var rolloutPresentationCache = RolloutPresentationCache()
     private var slots: [AgentSlot] = (1...6).map { AgentSlot(index: $0, thread: nil, state: .off) }
     private var recentThreads: [CodexThread] = []
     private var activeSlotIndex: Int?
     private var tourBoxConnected = false
     private var tourBoxServerListening = false
     private var hookServerListening = false
-    private var connectionStatus = "等待 TourBox"
+    private var runtimeConnectionState = RuntimeConnectionState()
+    private var hookSignalGate = HookSignalGate()
+    private var deferredInputTasks: [String: DeferredInputTask] = [:]
     private var refreshTimer: Timer?
     private var threadRefreshInFlight = false
     private var threadRefreshPending = false
+    private var lastThreadDatabaseFingerprint: ThreadDatabaseFingerprint?
+    private var lastUnknownThreadRefreshAt: Date?
+    private var lastHookSignalAt: Date?
+    private var lastThreadRefreshAt: Date?
+    private var lastStatusMaintenanceAt: Date?
+    private var codexDatabaseFailureStartedAt: Date?
     private var didStartRolloutReconciliation = false
     private var rolloutReconciliationInFlight = false
     private var lastRolloutReconciliationAt: Date?
@@ -45,13 +66,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var connectionMenuItem: NSMenuItem?
     private var hudMenuItem: NSMenuItem?
     private var settingsWindowController: SettingsWindowController?
+    private var onboardingWindowController: OnboardingWindowController?
     private var lastHUDRenderState: HUDRenderState?
+
+    private var connectionStatus: String {
+        runtimeConnectionState.displayText
+    }
 
     private struct HUDRenderState: Equatable {
         let slots: [AgentSlot]
         let selectedSlotIndex: Int?
         let tourBoxConnected: Bool
         let statusText: String
+    }
+
+    private struct DeferredInputTask {
+        let token: UUID
+        let task: Task<Void, Never>
+    }
+
+    private struct ThreadRefreshOutcome: Sendable {
+        let threads: [CodexThread]?
+        let error: String?
+        let diagnostic: ThreadDatabaseErrorDiagnostic?
+        let stableFingerprint: ThreadDatabaseFingerprint?
+        let unchanged: Bool
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -63,11 +102,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         updateHUDMenuTitle()
         startServers()
         refreshThreads()
-        if CommandLine.arguments.contains("--settings") {
+        let shouldShowOnboarding = CommandLine.arguments.contains("--onboarding")
+            || !PreferencesStore.loadOnboardingCompleted()
+        if shouldShowOnboarding {
+            DispatchQueue.main.async { [weak self] in self?.openOnboarding() }
+        } else if CommandLine.arguments.contains("--settings") {
             DispatchQueue.main.async { [weak self] in self?.openSettings() }
         }
-        let refreshTimer = Timer(timeInterval: RefreshPolicy.threadInterval, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated { self?.refreshThreads() }
+        let refreshTimer = Timer(timeInterval: RefreshPolicy.timerInterval, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.refreshThreadsIfDue() }
         }
         refreshTimer.tolerance = RefreshPolicy.timerTolerance
         RunLoop.main.add(refreshTimer, forMode: .common)
@@ -84,6 +127,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         refreshTimer?.invalidate()
+        deferredInputTasks.values.forEach { $0.task.cancel() }
+        deferredInputTasks.removeAll()
+        hookSignalGate.removeAll()
         tourBoxServer?.stop()
         hookServer?.stop()
         hudController?.hide()
@@ -95,7 +141,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             onEvent: { [weak self] event in self?.handle(event) },
             onConnection: { [weak self] connected, error in
                 self?.tourBoxConnected = connected
-                self?.connectionStatus = error.map { "TourBox：\($0)" } ?? (connected ? "TourBox 已连接" : "等待 TourBox")
+                self?.runtimeConnectionState.setTourBoxStatus(
+                    error.map { "TourBox：\($0)" }
+                        ?? (connected ? L10n.tr("TourBox connected") : L10n.tr("Waiting for TourBox"))
+                )
                 self?.render()
             }
         )
@@ -105,28 +154,84 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             tourBoxServerListening = true
         } catch {
             tourBoxServerListening = false
-            connectionStatus = "Port 50500: \(error.localizedDescription)"
+            runtimeConnectionState.setTourBoxStatus("Port 50500: \(error.localizedDescription)")
         }
 
-        let hookServer = HookServer(
-            onSignal: { [weak self] signal in
-                self?.statusStore.apply(signal)
-                self?.resolveSlots()
-            },
-            onError: { [weak self] error in
-                self?.connectionStatus = "Hook server: \(error)"
-                self?.render()
-            }
-        )
-        self.hookServer = hookServer
         do {
+            let token = try HookAuthentication.loadOrCreateToken()
+            let hookServer = HookServer(
+                authenticationToken: token,
+                onSignal: { [weak self] signal in
+                    self?.receiveHookSignal(signal)
+                },
+                onError: { [weak self] error in
+                    self?.runtimeConnectionState.setHookServerError("Hook server: \(error)")
+                    self?.render()
+                }
+            )
+            self.hookServer = hookServer
             try hookServer.start()
             hookServerListening = true
         } catch {
             hookServerListening = false
-            connectionStatus = "Port 50501: \(error.localizedDescription)"
+            runtimeConnectionState.setHookServerError("Port 50501: \(error.localizedDescription)")
         }
         render()
+    }
+
+    private func receiveHookSignal(_ signal: HookSignal) {
+        lastHookSignalAt = Date()
+        switch hookSignalGate.receive(signal) {
+        case .deferInput(let identityKey):
+            deferredInputTasks.removeValue(forKey: identityKey)?.task.cancel()
+            let token = UUID()
+            lifecycleLogger.info(
+                "Deferring permission signal identity=\(identityKey, privacy: .private(mask: .hash))"
+            )
+            let task = Task { [weak self] in
+                do {
+                    try await Task.sleep(for: StatusPolicy.permissionDebounce)
+                } catch {
+                    return
+                }
+                guard let self,
+                      deferredInputTasks[identityKey]?.token == token else { return }
+                deferredInputTasks[identityKey] = nil
+                guard let deferred = hookSignalGate.flushDeferredInput(for: identityKey) else {
+                    return
+                }
+                lifecycleLogger.notice(
+                    "Committing user-input state identity=\(identityKey, privacy: .private(mask: .hash))"
+                )
+                applyHookSignal(deferred)
+            }
+            deferredInputTasks[identityKey] = DeferredInputTask(token: token, task: task)
+        case .apply(let current, let canceledIdentityKey):
+            if let canceledIdentityKey {
+                deferredInputTasks.removeValue(forKey: canceledIdentityKey)?.task.cancel()
+                lifecycleLogger.notice(
+                    "Canceled permission signal after state=\(current.state.rawValue, privacy: .public) identity=\(canceledIdentityKey, privacy: .private(mask: .hash))"
+                )
+            }
+            applyHookSignal(current)
+        }
+    }
+
+    private func applyHookSignal(_ signal: HookSignal) {
+        let shouldDiscoverUnknownThread = signal.threadID.map { threadID in
+            !recentThreads.contains { $0.id == threadID }
+        } ?? false
+        statusStore.apply(signal)
+        resolveSlots()
+        if shouldDiscoverUnknownThread {
+            let now = Date()
+            if lastUnknownThreadRefreshAt.map({
+                now.timeIntervalSince($0) >= RefreshPolicy.unknownThreadCooldown
+            }) ?? true {
+                lastUnknownThreadRefreshAt = now
+                refreshThreads()
+            }
+        }
     }
 
     private func refreshThreads() {
@@ -135,32 +240,97 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
         threadRefreshInFlight = true
+        lastThreadRefreshAt = Date()
         let repository = repository
+        let previousFingerprint = lastThreadDatabaseFingerprint
 
         Task { [weak self] in
             let result = await Task.detached(priority: .utility) {
+                let fingerprintBeforeRead = repository.changeFingerprint()
+                if fingerprintBeforeRead == previousFingerprint {
+                    return ThreadRefreshOutcome(
+                        threads: nil,
+                        error: nil,
+                        diagnostic: nil,
+                        stableFingerprint: fingerprintBeforeRead,
+                        unchanged: true
+                    )
+                }
                 do {
-                    return (
-                        threads: Optional(try repository.loadRecentThreads(limit: 200)),
-                        error: nil as String?
+                    let threads = try repository.loadRecentThreads(limit: 200)
+                    let fingerprintAfterRead = repository.changeFingerprint()
+                    return ThreadRefreshOutcome(
+                        threads: threads,
+                        error: nil,
+                        diagnostic: nil,
+                        stableFingerprint: fingerprintBeforeRead == fingerprintAfterRead
+                            ? fingerprintAfterRead
+                            : nil,
+                        unchanged: false
                     )
                 } catch {
-                    return (threads: nil, error: error.localizedDescription)
+                    return ThreadRefreshOutcome(
+                        threads: nil,
+                        error: error.localizedDescription,
+                        diagnostic: (error as? ThreadRepositoryError)?.diagnostic,
+                        stableFingerprint: nil,
+                        unchanged: false
+                    )
                 }
             }.value
             guard let self else { return }
             threadRefreshInFlight = false
 
-            if let threads = result.threads {
+            if result.unchanged {
+                let statusChanged = performStatusMaintenanceIfNeeded()
+                startRolloutReconciliationIfNeeded()
+                if statusChanged { resolveSlots() }
+            } else if let threads = result.threads {
+                lastThreadDatabaseFingerprint = result.stableFingerprint
+                let recoveredFromError = runtimeConnectionState.clearCodexStateError()
+                if recoveredFromError {
+                    let durationMilliseconds = codexDatabaseFailureStartedAt.map {
+                        Int((Date().timeIntervalSince($0) * 1_000).rounded())
+                    } ?? 0
+                    lifecycleLogger.notice(
+                        "Codex state database access recovered duration_ms=\(durationMilliseconds)"
+                    )
+                }
+                codexDatabaseFailureStartedAt = nil
+                var presentationChanged = rolloutPresentationCache.retain(
+                    threadIDs: Set(threads.map(\.id))
+                )
                 if threads != recentThreads {
                     recentThreads = threads
+                    presentationChanged = true
+                }
+                if performStatusMaintenanceIfNeeded() {
+                    presentationChanged = true
+                }
+                if presentationChanged {
                     resolveSlots()
+                } else if recoveredFromError {
+                    render()
                 }
                 startRolloutReconciliationIfNeeded()
             } else if let error = result.error {
+                // A failed read must invalidate the last successful fingerprint;
+                // otherwise an unchanged database can be mistaken for recovery.
+                lastThreadDatabaseFingerprint = nil
                 let message = "Codex state: \(error)"
-                if connectionStatus != message {
-                    connectionStatus = message
+                let isNewFailure = codexDatabaseFailureStartedAt == nil
+                if isNewFailure {
+                    codexDatabaseFailureStartedAt = Date()
+                    if let diagnostic = result.diagnostic {
+                        lifecycleLogger.error(
+                            "Codex state database refresh failed operation=\(diagnostic.operation, privacy: .public) code=\(diagnostic.primaryCode) extended=\(diagnostic.extendedCode)"
+                        )
+                    } else {
+                        lifecycleLogger.error("Codex state database refresh failed operation=unknown")
+                    }
+                }
+                if runtimeConnectionState.codexStateError != message {
+                    runtimeConnectionState.setCodexStateError(message)
                     render()
                 }
             }
@@ -169,6 +339,39 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 threadRefreshPending = false
                 refreshThreads()
             }
+        }
+    }
+
+    private func refreshThreadsIfDue(at date: Date = Date()) {
+        guard threadRefreshCadence.refreshIsDue(
+            lastRefreshAt: lastThreadRefreshAt,
+            lastHookSignalAt: lastHookSignalAt,
+            now: date
+        ) else { return }
+        refreshThreads()
+    }
+
+    @discardableResult
+    private func performStatusMaintenanceIfNeeded(at date: Date = Date()) -> Bool {
+        if let lastStatusMaintenanceAt,
+           date.timeIntervalSince(lastStatusMaintenanceAt) < StatusPolicy.maintenanceInterval {
+            return false
+        }
+        lastStatusMaintenanceAt = date
+        do {
+            let result = try statusStore.performMaintenance(
+                keepingThreadIDs: Set(recentThreads.map(\.id)),
+                activeBefore: date.addingTimeInterval(-StatusPolicy.activeStateMaximumAge),
+                at: date
+            )
+            guard result.changedCount > 0 else { return false }
+            lifecycleLogger.notice(
+                "Status maintenance completed expired=\(result.expiredActiveCount) removed_orphans=\(result.removedOrphanCount)"
+            )
+            return true
+        } catch {
+            lifecycleLogger.error("Status maintenance failed")
+            return false
         }
     }
 
@@ -198,13 +401,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             rolloutReconciliationInFlight = false
             let previousActivities = statusStore.activities
             statusStore.reconcile(result.0)
-            var presentationChanged = false
-            for snapshot in result.1 {
-                if latestRolloutMessages[snapshot.threadID] != snapshot.latestMessage {
-                    latestRolloutMessages[snapshot.threadID] = snapshot.latestMessage
-                    presentationChanged = true
-                }
-            }
+            let presentationChanged = rolloutPresentationCache.apply(result.1)
             if previousActivities != statusStore.activities || presentationChanged {
                 resolveSlots()
             }
@@ -222,7 +419,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 thread: slot.thread,
                 state: slot.state,
                 detail: slot.detail,
-                latestMessage: slot.thread.flatMap { latestRolloutMessages[$0.id] }
+                latestMessage: slot.thread.flatMap { rolloutPresentationCache[$0.id] }
             )
         }
         guard resolvedSlots != slots else { return }
@@ -339,40 +536,48 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(connectionItem)
         menu.addItem(.separator())
 
-        let hudItem = NSMenuItem(title: "隐藏六任务 HUD", action: #selector(toggleHUD), keyEquivalent: "h")
+        let hudItem = NSMenuItem(title: L10n.tr("Hide six-task HUD"), action: #selector(toggleHUD), keyEquivalent: "h")
         hudItem.target = self
         hudMenuItem = hudItem
         menu.addItem(hudItem)
 
-        let settingsItem = NSMenuItem(title: "设置…", action: #selector(openSettings), keyEquivalent: ",")
+        let settingsItem = NSMenuItem(title: L10n.tr("Settings…"), action: #selector(openSettings), keyEquivalent: ",")
         settingsItem.target = self
         menu.addItem(settingsItem)
 
-        let resetHUDItem = NSMenuItem(title: "重置 HUD 尺寸与位置", action: #selector(resetHUD), keyEquivalent: "")
+        let onboardingItem = NSMenuItem(
+            title: L10n.tr("Run Setup Assistant…"),
+            action: #selector(openOnboarding),
+            keyEquivalent: ""
+        )
+        onboardingItem.target = self
+        menu.addItem(onboardingItem)
+
+        let resetHUDItem = NSMenuItem(title: L10n.tr("Reset HUD size and position"), action: #selector(resetHUD), keyEquivalent: "")
         resetHUDItem.target = self
         menu.addItem(resetHUDItem)
 
-        let openItem = NSMenuItem(title: "打开 Codex", action: #selector(openCodex), keyEquivalent: "o")
+        let openItem = NSMenuItem(title: L10n.tr("Open Codex"), action: #selector(openCodex), keyEquivalent: "o")
         openItem.target = self
         menu.addItem(openItem)
 
-        let integrationItem = NSMenuItem(title: "安装 Codex Hooks 与基础快捷键…", action: #selector(installIntegration), keyEquivalent: "")
+        let integrationItem = NSMenuItem(title: L10n.tr("Install Codex hooks and base shortcuts…"), action: #selector(installIntegration), keyEquivalent: "")
         integrationItem.target = self
         menu.addItem(integrationItem)
 
-        let accessibilityItem = NSMenuItem(title: "授予辅助功能权限…", action: #selector(requestAccessibility), keyEquivalent: "")
+        let accessibilityItem = NSMenuItem(title: L10n.tr("Grant Accessibility permission…"), action: #selector(requestAccessibility), keyEquivalent: "")
         accessibilityItem.target = self
         menu.addItem(accessibilityItem)
         menu.addItem(.separator())
 
-        let quitItem = NSMenuItem(title: "退出 TourBox Micro", action: #selector(quit), keyEquivalent: "q")
+        let quitItem = NSMenuItem(title: L10n.tr("Quit TourBox Micro"), action: #selector(quit), keyEquivalent: "q")
         quitItem.target = self
         menu.addItem(quitItem)
         statusItem.menu = menu
     }
 
     private func updateHUDMenuTitle() {
-        hudMenuItem?.title = hudVisible ? "隐藏六任务 HUD" : "显示六任务 HUD"
+        hudMenuItem?.title = hudVisible ? L10n.tr("Hide six-task HUD") : L10n.tr("Show six-task HUD")
     }
 
     @objc private func toggleHUD() {
@@ -410,70 +615,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func openSettings() {
         if settingsWindowController == nil {
-            let callbacks = SettingsCallbacks(
-                setHUDVisible: { [weak self] visible in
-                    self?.setHUDVisible(visible)
-                },
-                setHUDStyle: { [weak self] style in
-                    guard let self else { return }
-                    guard style != self.hudStyle else { return }
-                    self.hudStyle = style
-                    PreferencesStore.saveHUDStyle(style)
-                    self.hudController?.setStyle(style)
-                    self.lastHUDRenderState = nil
-                    self.render()
-                },
-                setHUDHoverDetails: { [weak self] enabled in
-                    guard let self else { return }
-                    guard enabled != self.hudHoverDetailsEnabled else { return }
-                    self.hudHoverDetailsEnabled = enabled
-                    PreferencesStore.saveHUDHoverDetails(enabled)
-                    self.hudController?.setHoverDetailsEnabled(enabled)
-                },
-                setHUDStatusNotifications: { [weak self] enabled in
-                    guard let self else { return }
-                    guard enabled != self.hudStatusNotificationsEnabled else { return }
-                    self.hudStatusNotificationsEnabled = enabled
-                    PreferencesStore.saveHUDStatusNotifications(enabled)
-                    self.hudController?.setStatusNotificationsEnabled(enabled)
-                },
-                setHUDAnimations: { [weak self] enabled in
-                    guard let self else { return }
-                    guard enabled != self.hudAnimationsEnabled else { return }
-                    self.hudAnimationsEnabled = enabled
-                    PreferencesStore.saveHUDAnimations(enabled)
-                    self.hudController?.setAnimationsEnabled(enabled)
-                },
-                setSlotMode: { [weak self] mode in
-                    guard let self else { return }
-                    guard mode != self.slotMode else { return }
-                    self.slotMode = mode
-                    PreferencesStore.saveSlotMode(mode)
-                    self.resolveSlots()
-                },
-                setMapping: { [weak self] mapping in
-                    guard let self else { return }
-                    self.mappingConfiguration = mapping
-                    self.router.updateConfiguration(mapping)
-                    PreferencesStore.saveMapping(mapping)
-                },
-                openCodex: { [weak self] in self?.codexController.openCodex() },
-                installIntegration: { [weak self] in
-                    guard let self else { return "App 正在退出。" }
-                    return try self.performInstallIntegration()
-                },
-                requestAccessibility: { [weak self] in self?.codexController.requestAccessibilityAccess() }
-            )
-            let model = SettingsModel(
-                hudVisible: hudVisible,
-                hudStyle: hudStyle,
-                hudHoverDetailsEnabled: hudHoverDetailsEnabled,
-                hudStatusNotificationsEnabled: hudStatusNotificationsEnabled,
-                hudAnimationsEnabled: hudAnimationsEnabled,
-                slotMode: slotMode,
-                mapping: mappingConfiguration,
-                callbacks: callbacks
-            )
+            let model = makeSettingsModel()
             settingsWindowController = SettingsWindowController(model: model) { [weak self] in
                 self?.settingsWindowController = nil
             }
@@ -482,6 +624,93 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             updateSettingsModel(model)
         }
         settingsWindowController?.show()
+    }
+
+    @objc private func openOnboarding() {
+        if onboardingWindowController == nil {
+            let model = makeSettingsModel()
+            onboardingWindowController = OnboardingWindowController(
+                model: model,
+                onComplete: { [weak self] in self?.completeOnboarding() },
+                onClose: { [weak self] in self?.onboardingWindowController = nil }
+            )
+        }
+        if let model = onboardingWindowController?.model {
+            updateSettingsModel(model)
+        }
+        onboardingWindowController?.show()
+    }
+
+    private func completeOnboarding() {
+        PreferencesStore.saveOnboardingCompleted(true)
+        onboardingWindowController?.close()
+        onboardingWindowController = nil
+    }
+
+    private func makeSettingsModel() -> SettingsModel {
+        let callbacks = SettingsCallbacks(
+            setHUDVisible: { [weak self] visible in
+                self?.setHUDVisible(visible)
+            },
+            setHUDStyle: { [weak self] style in
+                guard let self, style != self.hudStyle else { return }
+                self.hudStyle = style
+                PreferencesStore.saveHUDStyle(style)
+                self.hudController?.setStyle(style)
+                self.lastHUDRenderState = nil
+                self.render()
+            },
+            setHUDHoverDetails: { [weak self] enabled in
+                guard let self, enabled != self.hudHoverDetailsEnabled else { return }
+                self.hudHoverDetailsEnabled = enabled
+                PreferencesStore.saveHUDHoverDetails(enabled)
+                self.hudController?.setHoverDetailsEnabled(enabled)
+            },
+            setHUDStatusNotifications: { [weak self] enabled in
+                guard let self, enabled != self.hudStatusNotificationsEnabled else { return }
+                self.hudStatusNotificationsEnabled = enabled
+                PreferencesStore.saveHUDStatusNotifications(enabled)
+                self.hudController?.setStatusNotificationsEnabled(enabled)
+            },
+            setHUDAnimations: { [weak self] enabled in
+                guard let self, enabled != self.hudAnimationsEnabled else { return }
+                self.hudAnimationsEnabled = enabled
+                PreferencesStore.saveHUDAnimations(enabled)
+                self.hudController?.setAnimationsEnabled(enabled)
+            },
+            setSlotMode: { [weak self] mode in
+                guard let self, mode != self.slotMode else { return }
+                self.slotMode = mode
+                PreferencesStore.saveSlotMode(mode)
+                self.resolveSlots()
+            },
+            setMapping: { [weak self] mapping in
+                guard let self else { return }
+                self.mappingConfiguration = mapping
+                self.router.updateConfiguration(mapping)
+                PreferencesStore.saveMapping(mapping)
+            },
+            openCodex: { [weak self] in self?.codexController.openCodex() },
+            openPresetGuide: {
+                guard let url = URL(string: "https://github.com/MJYKIM99/tourbox-micro/blob/main/Docs/TOURBOX_PRESET.md") else { return }
+                NSWorkspace.shared.open(url)
+            },
+            installIntegration: { [weak self] in
+                guard let self else { return L10n.tr("The app is quitting.") }
+                return try self.performInstallIntegration()
+            },
+            requestAccessibility: { [weak self] in self?.codexController.requestAccessibilityAccess() }
+        )
+        return SettingsModel(
+            hudVisible: hudVisible,
+            hudStyle: hudStyle,
+            hudHoverDetailsEnabled: hudHoverDetailsEnabled,
+            hudStatusNotificationsEnabled: hudStatusNotificationsEnabled,
+            hudAnimationsEnabled: hudAnimationsEnabled,
+            slotMode: slotMode,
+            mapping: mappingConfiguration,
+            callbacks: callbacks
+        )
     }
 
     @objc private func openCodex() {
@@ -495,31 +724,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func installIntegration() {
         do {
             showAlert(
-                title: "Codex integration installed",
+                title: L10n.tr("Codex integration installed"),
                 message: try performInstallIntegration()
             )
         } catch {
-            showAlert(title: "Installation failed", message: error.localizedDescription)
+            showAlert(title: L10n.tr("Installation failed"), message: error.localizedDescription)
         }
     }
 
     private func performInstallIntegration() throws -> String {
         let codexDirectory = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".codex")
-        let hooks = try ConfigurationInstaller.installHooks(at: codexDirectory.appendingPathComponent("hooks.json"))
+        let token = try HookAuthentication.loadOrCreateToken()
+        let hooks = try ConfigurationInstaller.installHooks(
+            at: codexDirectory.appendingPathComponent("hooks.json"),
+            authenticationToken: token
+        )
         let keys = try ConfigurationInstaller.installKeybindings(at: codexDirectory.appendingPathComponent("keybindings.json"))
         let backups = [hooks.backupPath, keys.backupPath].compactMap { $0 }
-        let backupText = backups.isEmpty ? "本次无需创建备份。" : "备份：\n\(backups.joined(separator: "\n"))"
-        return """
-        Hooks 与基础快捷键已安装，现有设置已保留。重启 Codex，并在提示时检查并信任 Hooks。
-
-        推理旋钮需要人工绑定一次：
-        1. 打开 Codex 设置 → 键盘快捷键
-        2. 搜索“推理”或“effort”
-        3. 录制“增加推理强度”时向右转旋钮一格（F16）
-        4. 录制“降低推理强度”时向左转旋钮一格（F17）
-
-        \(backupText)
-        """
+        let backupText = backups.isEmpty
+            ? L10n.tr("No backup was needed this time.")
+            : L10n.format("Backups:\n%@", backups.joined(separator: "\n"))
+        return L10n.format(
+            "Hooks and base shortcuts are installed, and existing settings were preserved. Restart Codex and review and trust the hooks when prompted.\n\nBind the reasoning knob once:\n1. Open Codex Settings → Keyboard Shortcuts\n2. Search for “reasoning” or “effort”\n3. While recording “Increase reasoning effort,” turn the knob one step right (F16)\n4. While recording “Decrease reasoning effort,” turn the knob one step left (F17)\n\n%@",
+            backupText
+        )
     }
 
     private func showAlert(title: String, message: String) {
@@ -527,7 +755,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         alert.messageText = title
         alert.informativeText = message
         alert.alertStyle = .informational
-        alert.addButton(withTitle: "OK")
+        alert.addButton(withTitle: L10n.tr("OK"))
         NSApp.activate(ignoringOtherApps: true)
         alert.runModal()
     }

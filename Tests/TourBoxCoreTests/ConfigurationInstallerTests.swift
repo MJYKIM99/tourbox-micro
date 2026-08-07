@@ -18,8 +18,9 @@ import Testing
     let data = try JSONSerialization.data(withJSONObject: original)
     try data.write(to: url)
 
-    _ = try ConfigurationInstaller.installHooks(at: url)
-    _ = try ConfigurationInstaller.installHooks(at: url)
+    let token = String(repeating: "a", count: 64)
+    _ = try ConfigurationInstaller.installHooks(at: url, authenticationToken: token)
+    _ = try ConfigurationInstaller.installHooks(at: url, authenticationToken: token)
 
     let installed = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
     let hooks = try #require(installed["hooks"] as? [String: Any])
@@ -27,6 +28,21 @@ import Testing
     #expect(stopEntries.count == 2)
     #expect(String(data: try JSONSerialization.data(withJSONObject: stopEntries), encoding: .utf8)?.contains("existing-command") == true)
     #expect(hooks["SessionStart"] != nil)
+    for event in CodexHookEvent.allCases {
+        let entries = try #require(hooks[event.rawValue] as? [Any])
+        let managedCount = try entries.filter { entry in
+            let data = try JSONSerialization.data(
+                withJSONObject: entry,
+                options: .withoutEscapingSlashes
+            )
+            return String(data: data, encoding: .utf8)?.contains(
+                "127.0.0.1:50501/tourbox-hook/\(event.rawValue)"
+            ) == true
+        }.count
+        #expect(managedCount == 1)
+    }
+    #expect(ConfigurationInstaller.managedHooksInstalled(at: url, authenticationToken: token))
+    #expect(!ConfigurationInstaller.managedHooksInstalled(at: url, authenticationToken: String(repeating: "b", count: 64)))
 }
 
 @Test func keybindingInstallPreservesUnrelatedBindings() throws {

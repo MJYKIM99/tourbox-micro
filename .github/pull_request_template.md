@@ -7,6 +7,7 @@ Describe the problem and the resulting behavior.
 - [ ] `swift package resolve` leaves `Package.resolved` unchanged
 - [ ] `swift test`
 - [ ] `swift build -c release`
+- [ ] `ruby Scripts/check-localizations.rb`
 - [ ] Manual macOS verification where required
 - [ ] `git diff --check`
 
@@ -14,6 +15,7 @@ Describe the problem and the resulting behavior.
 
 - [ ] New recurring work is bounded, non-overlapping, and stops while hidden
 - [ ] UI changes were checked with Reduce Motion and animations disabled
+- [ ] UI changes were checked in English and Simplified Chinese
 - [ ] Performance claims include the workload, build type, and measurement method
 
 ## Safety and compatibility

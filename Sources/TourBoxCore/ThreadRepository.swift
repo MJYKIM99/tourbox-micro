@@ -1,12 +1,85 @@
+import Darwin
 import Foundation
 import SQLite3
+
+public struct ThreadDatabaseFingerprint: Equatable, Sendable {
+    fileprivate struct FileStamp: Equatable, Sendable {
+        let exists: Bool
+        let deviceID: UInt64?
+        let inode: UInt64?
+        let modificationDate: Date?
+        let fileSize: Int?
+    }
+
+    fileprivate let database: FileStamp
+    fileprivate let writeAheadLog: FileStamp
+}
+
+public struct ThreadDatabaseErrorDiagnostic: Equatable, Sendable {
+    public let operation: String
+    public let primaryCode: Int32
+    public let extendedCode: Int32
+
+    public init(operation: String, primaryCode: Int32, extendedCode: Int32) {
+        self.operation = operation
+        self.primaryCode = primaryCode
+        self.extendedCode = extendedCode
+    }
+}
+
+public enum ThreadRepositoryError: LocalizedError, Sendable {
+    case sqlite(diagnostic: ThreadDatabaseErrorDiagnostic, message: String)
+
+    public var diagnostic: ThreadDatabaseErrorDiagnostic {
+        switch self {
+        case .sqlite(let diagnostic, _): diagnostic
+        }
+    }
+
+    public var errorDescription: String? {
+        switch self {
+        case .sqlite(_, let message): message
+        }
+    }
+}
 
 public struct ThreadRepository: Sendable {
     public let databaseURL: URL
 
-    public init(databaseURL: URL = FileManager.default.homeDirectoryForCurrentUser
-        .appendingPathComponent(".codex/state_5.sqlite")) {
+    public init(databaseURL: URL = ThreadRepository.discoverDatabaseURL()) {
         self.databaseURL = databaseURL
+    }
+
+    public static func discoverDatabaseURL(
+        in codexDirectory: URL = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".codex")
+    ) -> URL {
+        let fallback = codexDirectory.appendingPathComponent("state_5.sqlite")
+        guard let candidates = try? FileManager.default.contentsOfDirectory(
+            at: codexDirectory,
+            includingPropertiesForKeys: [.isRegularFileKey],
+            options: [.skipsHiddenFiles]
+        ) else { return fallback }
+
+        return candidates.compactMap { url -> (version: Int, url: URL)? in
+            let name = url.lastPathComponent
+            guard name.hasPrefix("state_"), name.hasSuffix(".sqlite") else { return nil }
+            let start = name.index(name.startIndex, offsetBy: "state_".count)
+            let end = name.index(name.endIndex, offsetBy: -".sqlite".count)
+            guard let version = Int(name[start..<end]) else { return nil }
+            return (version, url)
+        }.max { $0.version < $1.version }?.url ?? fallback
+    }
+
+    /// A cheap change token for the main database and SQLite WAL sidecar.
+    /// SQLite normally commits Codex updates to the WAL without touching the
+    /// main database file, so both files are required for correct polling.
+    public func changeFingerprint() -> ThreadDatabaseFingerprint {
+        ThreadDatabaseFingerprint(
+            database: fileStamp(for: databaseURL),
+            writeAheadLog: fileStamp(
+                for: URL(fileURLWithPath: databaseURL.path + "-wal")
+            )
+        )
     }
 
     public func loadRecentThreads(limit: Int = 80) throws -> [CodexThread] {
@@ -21,9 +94,15 @@ public struct ThreadRepository: Sendable {
         )
         guard openResult == SQLITE_OK, let database else {
             defer { if let database { sqlite3_close(database) } }
-            throw RepositoryError.sqlite(message: database.map(sqliteMessage) ?? "无法打开 Codex 状态数据库")
+            throw sqliteError(
+                operation: "open",
+                resultCode: openResult,
+                database: database,
+                fallbackMessage: CoreL10n.tr("Unable to open the Codex state database")
+            )
         }
         defer { sqlite3_close(database) }
+        sqlite3_extended_result_codes(database, 1)
         sqlite3_busy_timeout(database, 500)
 
         let query = """
@@ -36,15 +115,25 @@ public struct ThreadRepository: Sendable {
         LIMIT ?;
         """
         var statement: OpaquePointer?
-        guard sqlite3_prepare_v2(database, query, -1, &statement, nil) == SQLITE_OK,
-              let statement else {
-            throw RepositoryError.sqlite(message: sqliteMessage(database))
+        let prepareResult = sqlite3_prepare_v2(database, query, -1, &statement, nil)
+        guard prepareResult == SQLITE_OK, let statement else {
+            throw sqliteError(
+                operation: "schema",
+                resultCode: prepareResult,
+                database: database,
+                fallbackMessage: "The Codex state database schema is not compatible with this version."
+            )
         }
         defer { sqlite3_finalize(statement) }
 
         let safeLimit = min(max(limit, 6), 500)
-        guard sqlite3_bind_int(statement, 1, Int32(safeLimit)) == SQLITE_OK else {
-            throw RepositoryError.sqlite(message: sqliteMessage(database))
+        let bindResult = sqlite3_bind_int(statement, 1, Int32(safeLimit))
+        guard bindResult == SQLITE_OK else {
+            throw sqliteError(
+                operation: "bind",
+                resultCode: bindResult,
+                database: database
+            )
         }
 
         var threads: [CodexThread] = []
@@ -67,8 +156,12 @@ public struct ThreadRepository: Sendable {
                 )
             case SQLITE_DONE:
                 return threads
-            default:
-                throw RepositoryError.sqlite(message: sqliteMessage(database))
+            case let result:
+                throw sqliteError(
+                    operation: "read",
+                    resultCode: result,
+                    database: database
+                )
             }
         }
     }
@@ -88,13 +181,46 @@ public struct ThreadRepository: Sendable {
         String(cString: sqlite3_errmsg(database))
     }
 
-    private enum RepositoryError: LocalizedError {
-        case sqlite(message: String)
+    private func sqliteError(
+        operation: String,
+        resultCode: Int32,
+        database: OpaquePointer?,
+        fallbackMessage: String = "The Codex state database could not be read."
+    ) -> ThreadRepositoryError {
+        let primaryCode = database.map(sqlite3_errcode) ?? (resultCode & 0xFF)
+        let extendedCode = database.map(sqlite3_extended_errcode) ?? resultCode
+        return .sqlite(
+            diagnostic: ThreadDatabaseErrorDiagnostic(
+                operation: operation,
+                primaryCode: primaryCode,
+                extendedCode: extendedCode
+            ),
+            message: operation == "schema" ? fallbackMessage : (database.map(sqliteMessage) ?? fallbackMessage)
+        )
+    }
 
-        var errorDescription: String? {
-            switch self {
-            case .sqlite(let message): message
-            }
+    private func fileStamp(for url: URL) -> ThreadDatabaseFingerprint.FileStamp {
+        var information = stat()
+        let result = url.path.withCString {
+            Darwin.fstatat(AT_FDCWD, $0, &information, 0)
         }
+        guard result == 0 else {
+            return .init(
+                exists: false,
+                deviceID: nil,
+                inode: nil,
+                modificationDate: nil,
+                fileSize: nil
+            )
+        }
+        let seconds = TimeInterval(information.st_mtimespec.tv_sec)
+        let nanoseconds = TimeInterval(information.st_mtimespec.tv_nsec) / 1_000_000_000
+        return .init(
+            exists: true,
+            deviceID: UInt64(information.st_dev),
+            inode: UInt64(information.st_ino),
+            modificationDate: Date(timeIntervalSince1970: seconds + nanoseconds),
+            fileSize: Int(information.st_size)
+        )
     }
 }

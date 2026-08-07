@@ -35,7 +35,7 @@ struct RolloutPresentationReaderTests {
 
         let snapshot = RolloutPresentationReader().snapshot(for: thread(rolloutPath: url.path))
 
-        #expect(snapshot?.latestMessage == "正在处理，等待新的进展…")
+        #expect(snapshot?.latestMessage == "Working; waiting for new progress…")
     }
 
     @Test func ignoresUserAndReasoningItems() throws {
@@ -49,6 +49,29 @@ struct RolloutPresentationReaderTests {
         let snapshot = RolloutPresentationReader().snapshot(for: thread(rolloutPath: url.path))
 
         #expect(snapshot?.latestMessage == "最后进展")
+    }
+
+    @Test func presentationCacheDropsThreadsOutsideRecentWindow() {
+        var cache = RolloutPresentationCache()
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let didApplyInitialSnapshots = cache.apply([
+            RolloutPresentationSnapshot(threadID: "keep", latestMessage: "保留", updatedAt: now),
+            RolloutPresentationSnapshot(threadID: "drop", latestMessage: "清理", updatedAt: now)
+        ])
+        #expect(didApplyInitialSnapshots)
+        #expect(cache.count == 2)
+        let didApplyDuplicateSnapshot = cache.apply([
+            RolloutPresentationSnapshot(threadID: "keep", latestMessage: "保留", updatedAt: now)
+        ])
+        #expect(!didApplyDuplicateSnapshot)
+
+        let didPrune = cache.retain(threadIDs: ["keep"])
+        #expect(didPrune)
+        #expect(cache.count == 1)
+        #expect(cache["keep"] == "保留")
+        #expect(cache["drop"] == nil)
+        let didPruneAgain = cache.retain(threadIDs: ["keep"])
+        #expect(!didPruneAgain)
     }
 
     private func temporaryRollout(lines: [String]) throws -> URL {

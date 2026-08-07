@@ -24,6 +24,11 @@ TourBox Console databases.
 ## Security boundaries
 
 - Both local services must remain bound to `127.0.0.1`.
+- Lifecycle hook requests require a per-install token stored with `0600`
+  permissions. The HTTP parser enforces bounded headers, bodies, connections,
+  and request time.
+- A new TourBox TCP client must not evict an active client until it produces a
+  valid protocol event.
 - Configuration changes must merge with existing JSON and create a backup
   before writing.
 - Keyboard and scroll synthesis requires explicit macOS Accessibility consent.

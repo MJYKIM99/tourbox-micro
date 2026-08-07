@@ -52,6 +52,9 @@ fi
 /bin/cp "$PROJECT_ROOT/LICENSE" "$CONTENTS_PATH/Resources/LICENSE"
 /bin/cp "$PROJECT_ROOT/THIRD_PARTY_NOTICES.md" "$CONTENTS_PATH/Resources/THIRD_PARTY_NOTICES.md"
 setopt null_glob
+for localization_path in "$PROJECT_ROOT"/Resources/*.lproj; do
+    /usr/bin/ditto "$localization_path" "$CONTENTS_PATH/Resources/${localization_path:t}"
+done
 for resource_bundle in "$PROJECT_ROOT"/.build/release/*.bundle; do
     /usr/bin/ditto "$resource_bundle" "$CONTENTS_PATH/Resources/${resource_bundle:t}"
 done

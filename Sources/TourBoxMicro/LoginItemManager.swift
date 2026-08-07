@@ -39,21 +39,21 @@ enum LoginItemManager {
         let currentStatus = SMAppService.mainApp.status
         switch currentStatus {
         case .enabled:
-            return Snapshot(isEnabled: true, statusDescription: "已启用")
+            return Snapshot(isEnabled: true, statusDescription: L10n.tr("Enabled"))
         case .requiresApproval:
-            return Snapshot(isEnabled: false, statusDescription: "等待在系统设置中批准")
+            return Snapshot(isEnabled: false, statusDescription: L10n.tr("Waiting for approval in System Settings"))
         case .notRegistered:
-            return Snapshot(isEnabled: false, statusDescription: "未启用")
+            return Snapshot(isEnabled: false, statusDescription: L10n.tr("Disabled"))
         case .notFound:
             let fallbackEnabled = FileManager.default.fileExists(atPath: fallbackURL.path)
             return Snapshot(
                 isEnabled: fallbackEnabled,
                 statusDescription: fallbackEnabled
-                    ? "已启用（本机兼容模式，下次登录生效）"
-                    : "未启用（本机兼容模式）"
+                    ? L10n.tr("Enabled (compatibility mode; active next login)")
+                    : L10n.tr("Disabled (compatibility mode)")
             )
         @unknown default:
-            return Snapshot(isEnabled: false, statusDescription: "未知")
+            return Snapshot(isEnabled: false, statusDescription: L10n.tr("Unknown"))
         }
     }
 

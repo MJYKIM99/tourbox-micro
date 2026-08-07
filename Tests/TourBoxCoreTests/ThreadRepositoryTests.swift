@@ -56,9 +56,79 @@ import Testing
 
     let invalidURL = directory.appendingPathComponent("invalid.sqlite3")
     try createSQLiteDatabase(at: invalidURL, statements: "CREATE TABLE unrelated (id TEXT);")
-    #expect(throws: (any Error).self) {
-        try ThreadRepository(databaseURL: invalidURL).loadRecentThreads()
+    do {
+        _ = try ThreadRepository(databaseURL: invalidURL).loadRecentThreads()
+        Issue.record("Expected an invalid Codex schema to fail")
+    } catch {
+        let repositoryError = try #require(error as? ThreadRepositoryError)
+        #expect(repositoryError.diagnostic.operation == "schema")
+        #expect(repositoryError.diagnostic.primaryCode != SQLITE_OK)
+        #expect(repositoryError.diagnostic.extendedCode != SQLITE_OK)
+        #expect(repositoryError.localizedDescription.contains(invalidURL.path) == false)
     }
+}
+
+@Test func threadRepositoryDiscoversNewestVersionedDatabase() throws {
+    let directory = FileManager.default.temporaryDirectory
+        .appendingPathComponent("tourbox-thread-discovery-tests-\(UUID().uuidString)")
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+
+    for name in ["state_5.sqlite", "state_12.sqlite", "state_backup.sqlite", "state_20.sqlite-wal"] {
+        try Data().write(to: directory.appendingPathComponent(name))
+    }
+
+    #expect(ThreadRepository.discoverDatabaseURL(in: directory).lastPathComponent == "state_12.sqlite")
+}
+
+@Test func threadDatabaseFingerprintTracksMainDatabaseAndWriteAheadLog() throws {
+    let directory = FileManager.default.temporaryDirectory
+        .appendingPathComponent("tourbox-thread-fingerprint-tests-\(UUID().uuidString)")
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let databaseURL = directory.appendingPathComponent("state.sqlite3")
+    let repository = ThreadRepository(databaseURL: databaseURL)
+
+    let missing = repository.changeFingerprint()
+    #expect(repository.changeFingerprint() == missing)
+
+    try createThreadDatabase(at: databaseURL, statements: "")
+    let created = repository.changeFingerprint()
+    #expect(created != missing)
+    #expect(repository.changeFingerprint() == created)
+
+    let walURL = URL(fileURLWithPath: databaseURL.path + "-wal")
+    try Data("first commit".utf8).write(to: walURL)
+    let firstWAL = repository.changeFingerprint()
+    #expect(firstWAL != created)
+
+    try Data("second, larger commit".utf8).write(to: walURL)
+    #expect(repository.changeFingerprint() != firstWAL)
+}
+
+@Test func threadDatabaseFingerprintFollowsLinksAndDetectsAtomicReplacement() throws {
+    let directory = FileManager.default.temporaryDirectory
+        .appendingPathComponent("tourbox-thread-replacement-tests-\(UUID().uuidString)")
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let targetURL = directory.appendingPathComponent("target.sqlite3")
+    let linkedURL = directory.appendingPathComponent("linked.sqlite3")
+    try createThreadDatabase(at: targetURL, statements: "")
+    try FileManager.default.createSymbolicLink(at: linkedURL, withDestinationURL: targetURL)
+    let repository = ThreadRepository(databaseURL: linkedURL)
+    let original = repository.changeFingerprint()
+
+    let originalData = try Data(contentsOf: targetURL)
+    let originalDate = try #require(
+        FileManager.default.attributesOfItem(atPath: targetURL.path)[.modificationDate] as? Date
+    )
+    let replacementURL = directory.appendingPathComponent("replacement.sqlite3")
+    try originalData.write(to: replacementURL)
+    try FileManager.default.setAttributes([.modificationDate: originalDate], ofItemAtPath: replacementURL.path)
+    try FileManager.default.removeItem(at: targetURL)
+    try FileManager.default.moveItem(at: replacementURL, to: targetURL)
+
+    #expect(repository.changeFingerprint() != original)
 }
 
 private func createThreadDatabase(at url: URL, statements: String) throws {

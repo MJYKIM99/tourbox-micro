@@ -8,7 +8,11 @@ private let arguments = Set(CommandLine.arguments.dropFirst())
 
 if arguments.contains("--install") {
     do {
-        let hooks = try ConfigurationInstaller.installHooks(at: codexDirectory.appendingPathComponent("hooks.json"))
+        let token = try HookAuthentication.loadOrCreateToken()
+        let hooks = try ConfigurationInstaller.installHooks(
+            at: codexDirectory.appendingPathComponent("hooks.json"),
+            authenticationToken: token
+        )
         let keys = try ConfigurationInstaller.installKeybindings(at: codexDirectory.appendingPathComponent("keybindings.json"))
         print(hooks.message)
         print(keys.message)
@@ -36,10 +40,11 @@ if arguments.contains("--doctor") {
     let fileManager = FileManager.default
     let hooksURL = codexDirectory.appendingPathComponent("hooks.json")
     let keybindingsURL = codexDirectory.appendingPathComponent("keybindings.json")
-    let hooksText = (try? String(contentsOf: hooksURL, encoding: .utf8)) ?? ""
+    let token = try? HookAuthentication.loadToken()
+    let databaseURL = ThreadRepository.discoverDatabaseURL(in: codexDirectory)
     print("Codex app: \(NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.openai.codex") != nil ? "found" : "missing")")
-    print("State database: \(fileManager.fileExists(atPath: codexDirectory.appendingPathComponent("state_5.sqlite").path) ? "found" : "missing")")
-    print("Lifecycle hooks: \(hooksText.contains(ConfigurationInstaller.hookMarker) ? "installed" : "not installed")")
+    print("State database: \(fileManager.fileExists(atPath: databaseURL.path) ? "found (\(databaseURL.lastPathComponent))" : "missing")")
+    print("Lifecycle hooks: \(token.map { ConfigurationInstaller.managedHooksInstalled(at: hooksURL, authenticationToken: $0) } == true ? "installed" : "not installed")")
     print("Managed shortcuts F13-F15: \(ConfigurationInstaller.managedKeybindingsInstalled(at: keybindingsURL) ? "installed" : "not installed")")
     print("Manual reasoning F16/F17: \(ConfigurationInstaller.manualReasoningKeybindingsInstalled(at: keybindingsURL) ? "assigned" : "not assigned")")
     print("Accessibility: \(AXIsProcessTrusted() ? "granted" : "not granted")")

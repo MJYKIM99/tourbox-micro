@@ -14,7 +14,7 @@ final class StatusStore {
             self.repository = repository
             activities = (try? repository.loadActivities()) ?? []
             persistenceAvailable = true
-            persistenceDetail = "SQLite WAL 已启用"
+            persistenceDetail = L10n.tr("SQLite WAL enabled")
             return
         }
 
@@ -26,14 +26,14 @@ final class StatusStore {
                 .appendingPathComponent("TourBox Micro", isDirectory: true)
                 .appendingPathComponent("status.sqlite3")
             let openedRepository = try ActivityRepository(databaseURL: url)
-            _ = try openedRepository.expireThinking(
+            _ = try openedRepository.expireStaleActiveStates(
                 before: Date().addingTimeInterval(-86_400)
             )
             let restoredActivities = try openedRepository.loadActivities()
             self.repository = openedRepository
             activities = restoredActivities
             persistenceAvailable = true
-            persistenceDetail = "SQLite WAL · \(activities.count) 条状态"
+            persistenceDetail = L10n.format("SQLite WAL · %d states", activities.count)
         } catch {
             self.repository = nil
             activities = []
@@ -68,7 +68,7 @@ final class StatusStore {
                         cwd: snapshot.cwd,
                         state: .thinking,
                         updatedAt: snapshot.updatedAt,
-                        detail: "从任务记录恢复"
+                        detail: L10n.tr("Recovered from task history")
                     ),
                     persist: true
                 )
@@ -85,13 +85,42 @@ final class StatusStore {
                         cwd: snapshot.cwd,
                         state: .complete,
                         updatedAt: snapshot.updatedAt,
-                        detail: "离线期间已完成"
+                        detail: L10n.tr("Completed while offline")
                     ),
                     persist: true
                 )
             default:
                 continue
             }
+        }
+    }
+
+    @discardableResult
+    func performMaintenance(
+        keepingThreadIDs threadIDs: Set<String>,
+        activeBefore cutoff: Date,
+        at date: Date = Date()
+    ) throws -> ActivityMaintenanceResult {
+        guard let repository else {
+            return ActivityMaintenanceResult(removedOrphanCount: 0, expiredActiveCount: 0)
+        }
+        do {
+            let result = try repository.performMaintenance(
+                keepingThreadIDs: threadIDs,
+                activeBefore: cutoff,
+                at: date
+            )
+            if result.changedCount > 0 {
+                activities = try repository.loadActivities()
+                sortAndTrim()
+            }
+            persistenceAvailable = true
+            persistenceDetail = L10n.format("SQLite WAL · %d states", activities.count)
+            return result
+        } catch {
+            persistenceAvailable = false
+            persistenceDetail = error.localizedDescription
+            throw error
         }
     }
 
@@ -115,7 +144,7 @@ final class StatusStore {
         sortAndTrim()
         do {
             try repository?.acknowledgeCompletion(for: thread, at: acknowledgedAt)
-            persistenceDetail = "SQLite WAL · \(activities.count) 条状态"
+            persistenceDetail = L10n.format("SQLite WAL · %d states", activities.count)
         } catch {
             persistenceAvailable = false
             persistenceDetail = error.localizedDescription
@@ -145,8 +174,8 @@ final class StatusStore {
             _ = try repository?.upsert(activity)
             persistenceAvailable = repository != nil
             persistenceDetail = repository == nil
-                ? "SQLite 不可用，使用内存状态"
-                : "SQLite WAL · \(activities.count) 条状态"
+                ? L10n.tr("SQLite unavailable; using in-memory state")
+                : L10n.format("SQLite WAL · %d states", activities.count)
         } catch {
             persistenceAvailable = false
             persistenceDetail = error.localizedDescription

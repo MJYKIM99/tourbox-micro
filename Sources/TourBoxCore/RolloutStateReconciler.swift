@@ -1,7 +1,31 @@
+import Darwin
 import Foundation
 
 private let fractionalISO8601 = Date.ISO8601FormatStyle(includingFractionalSeconds: true)
 private let standardISO8601 = Date.ISO8601FormatStyle(includingFractionalSeconds: false)
+
+private struct RolloutFileMetadata {
+    let deviceID: UInt64
+    let inode: UInt64
+    let modificationDate: Date
+    let fileSize: Int
+}
+
+private func rolloutFileMetadata(atPath path: String) -> RolloutFileMetadata? {
+    var information = stat()
+    let result = path.withCString {
+        Darwin.fstatat(AT_FDCWD, $0, &information, 0)
+    }
+    guard result == 0 else { return nil }
+    let seconds = TimeInterval(information.st_mtimespec.tv_sec)
+    let nanoseconds = TimeInterval(information.st_mtimespec.tv_nsec) / 1_000_000_000
+    return RolloutFileMetadata(
+        deviceID: UInt64(information.st_dev),
+        inode: UInt64(information.st_ino),
+        modificationDate: Date(timeIntervalSince1970: seconds + nanoseconds),
+        fileSize: Int(information.st_size)
+    )
+}
 
 private func rolloutTimestamp(from object: [String: Any]) -> Date? {
     if let milliseconds = object["timestamp_ms"] as? NSNumber {
@@ -38,6 +62,38 @@ public struct RolloutPresentationSnapshot: Equatable, Sendable {
     }
 }
 
+/// Keeps the small user-visible rollout summary cache bounded to threads the
+/// app can still surface. This avoids retaining task text after a thread falls
+/// outside the repository's recent-thread window.
+public struct RolloutPresentationCache: Sendable {
+    private var messages: [String: String] = [:]
+
+    public init() {}
+
+    public var count: Int { messages.count }
+
+    public subscript(threadID: String) -> String? {
+        messages[threadID]
+    }
+
+    @discardableResult
+    public mutating func apply(_ snapshots: [RolloutPresentationSnapshot]) -> Bool {
+        var changed = false
+        for snapshot in snapshots where messages[snapshot.threadID] != snapshot.latestMessage {
+            messages[snapshot.threadID] = snapshot.latestMessage
+            changed = true
+        }
+        return changed
+    }
+
+    @discardableResult
+    public mutating func retain(threadIDs: Set<String>) -> Bool {
+        let previousCount = messages.count
+        messages = messages.filter { threadIDs.contains($0.key) }
+        return messages.count != previousCount
+    }
+}
+
 /// Reads the most recent user-visible assistant update from a rollout tail.
 /// Internal reasoning, user input and the original task title are deliberately ignored.
 public struct RolloutPresentationReader: Sendable {
@@ -60,8 +116,7 @@ public struct RolloutPresentationReader: Sendable {
 
         var lines = data.split(separator: 0x0A, omittingEmptySubsequences: true)
         if data.first != 0x7B, !lines.isEmpty { lines.removeFirst() }
-        let fallbackDate = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?
-            .contentModificationDate ?? Date()
+        let fallbackDate = rolloutFileMetadata(atPath: rolloutPath)?.modificationDate ?? Date()
         var latestTaskStart: Date?
         var latestAssistantMessage: (text: String, date: Date)?
 
@@ -106,7 +161,7 @@ public struct RolloutPresentationReader: Sendable {
            latestAssistantMessage.map({ $0.date < taskStart }) ?? true {
             return RolloutPresentationSnapshot(
                 threadID: thread.id,
-                latestMessage: "正在处理，等待新的进展…",
+                latestMessage: CoreL10n.tr("Working; waiting for new progress…"),
                 updatedAt: taskStart
             )
         }
@@ -198,8 +253,7 @@ public struct RolloutStateReconciler: Sendable {
             lines.removeFirst()
         }
 
-        let fallbackDate = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?
-            .contentModificationDate ?? Date()
+        let fallbackDate = rolloutFileMetadata(atPath: rolloutPath)?.modificationDate ?? Date()
         for line in lines.reversed() {
             guard let object = try? JSONSerialization.jsonObject(with: Data(line)) as? [String: Any],
                   object["type"] as? String == "event_msg",
@@ -245,6 +299,8 @@ public struct RolloutStateReconciler: Sendable {
 /// share the same bounded filesystem scan.
 public final class RolloutChangeMonitor: @unchecked Sendable {
     private struct Fingerprint: Equatable {
+        let deviceID: UInt64?
+        let inode: UInt64?
         let modificationDate: Date?
         let fileSize: Int?
     }
@@ -269,11 +325,11 @@ public final class RolloutChangeMonitor: @unchecked Sendable {
         for thread in threads.prefix(maximumThreads) {
             guard let path = thread.rolloutPath, !path.isEmpty else { continue }
             livePaths.insert(path)
-            let values = try? URL(fileURLWithPath: path).resourceValues(
-                forKeys: [.contentModificationDateKey, .fileSizeKey]
-            )
+            let values = rolloutFileMetadata(atPath: path)
             let fingerprint = Fingerprint(
-                modificationDate: values?.contentModificationDate,
+                deviceID: values?.deviceID,
+                inode: values?.inode,
+                modificationDate: values?.modificationDate,
                 fileSize: values?.fileSize
             )
             if force || fingerprints[path] != fingerprint {
