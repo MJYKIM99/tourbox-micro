@@ -206,3 +206,30 @@ import Testing
     try handle.close()
     #expect(monitor.changedThreads(for: threads).map(\.id) == ["first"])
 }
+
+@Test func rolloutChangeMonitorFollowsSymbolicLinkTargets() throws {
+    let directory = FileManager.default.temporaryDirectory
+        .appendingPathComponent("tourbox-rollout-link-tests-\(UUID().uuidString)")
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let targetURL = directory.appendingPathComponent("target.jsonl")
+    let linkedURL = directory.appendingPathComponent("linked.jsonl")
+    try Data("initial".utf8).write(to: targetURL)
+    try FileManager.default.createSymbolicLink(at: linkedURL, withDestinationURL: targetURL)
+    let thread = CodexThread(
+        id: "linked",
+        title: "Linked",
+        cwd: "/linked",
+        recencyAtMilliseconds: 1,
+        rolloutPath: linkedURL.path
+    )
+    let monitor = RolloutChangeMonitor(maximumThreads: 1)
+
+    #expect(monitor.changedThreads(for: [thread], force: true).map(\.id) == ["linked"])
+    #expect(monitor.changedThreads(for: [thread]).isEmpty)
+    let handle = try FileHandle(forWritingTo: targetURL)
+    try handle.seekToEnd()
+    try handle.write(contentsOf: Data(" changed".utf8))
+    try handle.close()
+    #expect(monitor.changedThreads(for: [thread]).map(\.id) == ["linked"])
+}

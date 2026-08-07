@@ -27,6 +27,19 @@ import Testing
     #expect(stopEntries.count == 2)
     #expect(String(data: try JSONSerialization.data(withJSONObject: stopEntries), encoding: .utf8)?.contains("existing-command") == true)
     #expect(hooks["SessionStart"] != nil)
+    for event in CodexHookEvent.allCases {
+        let entries = try #require(hooks[event.rawValue] as? [Any])
+        let managedCount = try entries.filter { entry in
+            let data = try JSONSerialization.data(
+                withJSONObject: entry,
+                options: .withoutEscapingSlashes
+            )
+            return String(data: data, encoding: .utf8)?.contains(
+                "127.0.0.1:50501/tourbox-hook/\(event.rawValue)"
+            ) == true
+        }.count
+        #expect(managedCount == 1)
+    }
 }
 
 @Test func keybindingInstallPreservesUnrelatedBindings() throws {

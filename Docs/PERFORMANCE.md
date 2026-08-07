@@ -11,8 +11,9 @@ quiet otherwise.
   launching a `sqlite3` subprocess and decoding an unbounded result.
 - Database and rollout-file work runs at utility priority outside the main
   actor.
-- Unknown hook thread IDs trigger immediate discovery. A fifteen-second
-  fallback refresh uses timer tolerance and cannot overlap itself.
+- Unknown hook thread IDs trigger immediate discovery. Healthy hooks use a
+  fifteen-second fallback; missing or stale hooks retain five-second discovery.
+  Refreshes use timer tolerance and cannot overlap themselves.
 - Each fallback refresh fingerprints both the Codex database and its WAL
   sidecar through low-overhead file metadata calls, and skips the SQLite query
   when neither file changed. Failed or concurrent writes are not cached, so
@@ -55,7 +56,7 @@ the HUD was visible and Codex tasks remained active:
 | Thread refresh strategy | Samples | Average app CPU | Peak sample |
 |---|---:|---:|---:|
 | Five-second full query fallback | 20 | 0.80% | 6.0% |
-| Change fingerprint + hook discovery + fifteen-second fallback | 30 | 0.16% | 4.5% |
+| Change fingerprint + hook discovery + adaptive fallback | 30 | 0.16% | 4.5% |
 
 The final sample included six observed WAL-change periods, so it did not depend
 on an idle database. Process RSS settled between roughly 34 MB and 51 MB after

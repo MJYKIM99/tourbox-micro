@@ -5,17 +5,23 @@ private let fractionalISO8601 = Date.ISO8601FormatStyle(includingFractionalSecon
 private let standardISO8601 = Date.ISO8601FormatStyle(includingFractionalSeconds: false)
 
 private struct RolloutFileMetadata {
+    let deviceID: UInt64
+    let inode: UInt64
     let modificationDate: Date
     let fileSize: Int
 }
 
 private func rolloutFileMetadata(atPath path: String) -> RolloutFileMetadata? {
     var information = stat()
-    let result = path.withCString { Darwin.lstat($0, &information) }
+    let result = path.withCString {
+        Darwin.fstatat(AT_FDCWD, $0, &information, 0)
+    }
     guard result == 0 else { return nil }
     let seconds = TimeInterval(information.st_mtimespec.tv_sec)
     let nanoseconds = TimeInterval(information.st_mtimespec.tv_nsec) / 1_000_000_000
     return RolloutFileMetadata(
+        deviceID: UInt64(information.st_dev),
+        inode: UInt64(information.st_ino),
         modificationDate: Date(timeIntervalSince1970: seconds + nanoseconds),
         fileSize: Int(information.st_size)
     )
@@ -293,6 +299,8 @@ public struct RolloutStateReconciler: Sendable {
 /// share the same bounded filesystem scan.
 public final class RolloutChangeMonitor: @unchecked Sendable {
     private struct Fingerprint: Equatable {
+        let deviceID: UInt64?
+        let inode: UInt64?
         let modificationDate: Date?
         let fileSize: Int?
     }
@@ -319,6 +327,8 @@ public final class RolloutChangeMonitor: @unchecked Sendable {
             livePaths.insert(path)
             let values = rolloutFileMetadata(atPath: path)
             let fingerprint = Fingerprint(
+                deviceID: values?.deviceID,
+                inode: values?.inode,
                 modificationDate: values?.modificationDate,
                 fileSize: values?.fileSize
             )

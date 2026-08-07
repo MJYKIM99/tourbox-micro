@@ -31,8 +31,11 @@ follows [Semantic Versioning](https://semver.org/).
 
 - Added a main-database and WAL change fingerprint so the fallback poll performs
   a full Codex SQLite query only after an actual database change.
-- Replaced five-second thread-list polling with immediate discovery for unknown
-  hook thread IDs and a tolerant fifteen-second fallback.
+- Added adaptive thread discovery: no-hook and stale-hook installations retain
+  the previous five-second response, while healthy hooks use immediate unknown-
+  thread discovery and a tolerant fifteen-second fallback.
+- Included device and inode identity in database and rollout fingerprints, and
+  followed symbolic-link targets so atomic file replacement cannot be missed.
 
 ## [0.8.0] - 2026-08-06
 

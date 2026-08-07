@@ -5,6 +5,8 @@ import SQLite3
 public struct ThreadDatabaseFingerprint: Equatable, Sendable {
     fileprivate struct FileStamp: Equatable, Sendable {
         let exists: Bool
+        let deviceID: UInt64?
+        let inode: UInt64?
         let modificationDate: Date?
         let fileSize: Int?
     }
@@ -114,14 +116,24 @@ public struct ThreadRepository: Sendable {
 
     private func fileStamp(for url: URL) -> ThreadDatabaseFingerprint.FileStamp {
         var information = stat()
-        let result = url.path.withCString { Darwin.lstat($0, &information) }
+        let result = url.path.withCString {
+            Darwin.fstatat(AT_FDCWD, $0, &information, 0)
+        }
         guard result == 0 else {
-            return .init(exists: false, modificationDate: nil, fileSize: nil)
+            return .init(
+                exists: false,
+                deviceID: nil,
+                inode: nil,
+                modificationDate: nil,
+                fileSize: nil
+            )
         }
         let seconds = TimeInterval(information.st_mtimespec.tv_sec)
         let nanoseconds = TimeInterval(information.st_mtimespec.tv_nsec) / 1_000_000_000
         return .init(
             exists: true,
+            deviceID: UInt64(information.st_dev),
+            inode: UInt64(information.st_ino),
             modificationDate: Date(timeIntervalSince1970: seconds + nanoseconds),
             fileSize: Int(information.st_size)
         )

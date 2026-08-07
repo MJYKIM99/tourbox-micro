@@ -5,9 +5,9 @@ import TourBoxCore
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private enum RefreshPolicy {
-        static let threadInterval: TimeInterval = 15
+        static let timerInterval: TimeInterval = 5
         static let rolloutInterval: TimeInterval = 15
-        static let timerTolerance: TimeInterval = 2
+        static let timerTolerance: TimeInterval = 1
         static let unknownThreadCooldown: TimeInterval = 2
     }
 
@@ -16,6 +16,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private let repository = ThreadRepository()
+    private let threadRefreshCadence = ThreadRefreshCadencePolicy()
     private let statusStore = StatusStore()
     private let codexController = CodexController()
     private let lifecycleLogger = Logger(
@@ -50,6 +51,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var threadRefreshPending = false
     private var lastThreadDatabaseFingerprint: ThreadDatabaseFingerprint?
     private var lastUnknownThreadRefreshAt: Date?
+    private var lastHookSignalAt: Date?
+    private var lastThreadRefreshAt: Date?
     private var didStartRolloutReconciliation = false
     private var rolloutReconciliationInFlight = false
     private var lastRolloutReconciliationAt: Date?
@@ -96,8 +99,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if CommandLine.arguments.contains("--settings") {
             DispatchQueue.main.async { [weak self] in self?.openSettings() }
         }
-        let refreshTimer = Timer(timeInterval: RefreshPolicy.threadInterval, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated { self?.refreshThreads() }
+        let refreshTimer = Timer(timeInterval: RefreshPolicy.timerInterval, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.refreshThreadsIfDue() }
         }
         refreshTimer.tolerance = RefreshPolicy.timerTolerance
         RunLoop.main.add(refreshTimer, forMode: .common)
@@ -165,6 +168,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func receiveHookSignal(_ signal: HookSignal) {
+        lastHookSignalAt = Date()
         switch hookSignalGate.receive(signal) {
         case .deferInput(let identityKey):
             deferredInputTasks.removeValue(forKey: identityKey)?.task.cancel()
@@ -224,6 +228,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
         threadRefreshInFlight = true
+        lastThreadRefreshAt = Date()
         let repository = repository
         let previousFingerprint = lastThreadDatabaseFingerprint
 
@@ -296,6 +301,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 refreshThreads()
             }
         }
+    }
+
+    private func refreshThreadsIfDue(at date: Date = Date()) {
+        guard threadRefreshCadence.refreshIsDue(
+            lastRefreshAt: lastThreadRefreshAt,
+            lastHookSignalAt: lastHookSignalAt,
+            now: date
+        ) else { return }
+        refreshThreads()
     }
 
     private func startRolloutReconciliationIfNeeded() {

@@ -86,6 +86,31 @@ import Testing
     #expect(repository.changeFingerprint() != firstWAL)
 }
 
+@Test func threadDatabaseFingerprintFollowsLinksAndDetectsAtomicReplacement() throws {
+    let directory = FileManager.default.temporaryDirectory
+        .appendingPathComponent("tourbox-thread-replacement-tests-\(UUID().uuidString)")
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let targetURL = directory.appendingPathComponent("target.sqlite3")
+    let linkedURL = directory.appendingPathComponent("linked.sqlite3")
+    try createThreadDatabase(at: targetURL, statements: "")
+    try FileManager.default.createSymbolicLink(at: linkedURL, withDestinationURL: targetURL)
+    let repository = ThreadRepository(databaseURL: linkedURL)
+    let original = repository.changeFingerprint()
+
+    let originalData = try Data(contentsOf: targetURL)
+    let originalDate = try #require(
+        FileManager.default.attributesOfItem(atPath: targetURL.path)[.modificationDate] as? Date
+    )
+    let replacementURL = directory.appendingPathComponent("replacement.sqlite3")
+    try originalData.write(to: replacementURL)
+    try FileManager.default.setAttributes([.modificationDate: originalDate], ofItemAtPath: replacementURL.path)
+    try FileManager.default.removeItem(at: targetURL)
+    try FileManager.default.moveItem(at: replacementURL, to: targetURL)
+
+    #expect(repository.changeFingerprint() != original)
+}
+
 private func createThreadDatabase(at url: URL, statements: String) throws {
     try createSQLiteDatabase(at: url, statements: """
         CREATE TABLE threads (
