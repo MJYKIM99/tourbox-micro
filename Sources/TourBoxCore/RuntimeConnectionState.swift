@@ -1,7 +1,7 @@
 import Foundation
 
 public struct RuntimeConnectionState: Equatable, Sendable {
-    public private(set) var tourBoxStatus = "等待 TourBox"
+    public private(set) var tourBoxStatus = CoreL10n.tr("Waiting for TourBox")
     public private(set) var codexStateError: String?
     public private(set) var hookServerError: String?
 

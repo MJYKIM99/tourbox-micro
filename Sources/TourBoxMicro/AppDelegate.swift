@@ -66,6 +66,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var connectionMenuItem: NSMenuItem?
     private var hudMenuItem: NSMenuItem?
     private var settingsWindowController: SettingsWindowController?
+    private var onboardingWindowController: OnboardingWindowController?
     private var lastHUDRenderState: HUDRenderState?
 
     private var connectionStatus: String {
@@ -101,7 +102,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         updateHUDMenuTitle()
         startServers()
         refreshThreads()
-        if CommandLine.arguments.contains("--settings") {
+        let shouldShowOnboarding = CommandLine.arguments.contains("--onboarding")
+            || !PreferencesStore.loadOnboardingCompleted()
+        if shouldShowOnboarding {
+            DispatchQueue.main.async { [weak self] in self?.openOnboarding() }
+        } else if CommandLine.arguments.contains("--settings") {
             DispatchQueue.main.async { [weak self] in self?.openSettings() }
         }
         let refreshTimer = Timer(timeInterval: RefreshPolicy.timerInterval, repeats: true) { [weak self] _ in
@@ -138,7 +143,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self?.tourBoxConnected = connected
                 self?.runtimeConnectionState.setTourBoxStatus(
                     error.map { "TourBox：\($0)" }
-                        ?? (connected ? "TourBox 已连接" : "等待 TourBox")
+                        ?? (connected ? L10n.tr("TourBox connected") : L10n.tr("Waiting for TourBox"))
                 )
                 self?.render()
             }
@@ -152,17 +157,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             runtimeConnectionState.setTourBoxStatus("Port 50500: \(error.localizedDescription)")
         }
 
-        let hookServer = HookServer(
-            onSignal: { [weak self] signal in
-                self?.receiveHookSignal(signal)
-            },
-            onError: { [weak self] error in
-                self?.runtimeConnectionState.setHookServerError("Hook server: \(error)")
-                self?.render()
-            }
-        )
-        self.hookServer = hookServer
         do {
+            let token = try HookAuthentication.loadOrCreateToken()
+            let hookServer = HookServer(
+                authenticationToken: token,
+                onSignal: { [weak self] signal in
+                    self?.receiveHookSignal(signal)
+                },
+                onError: { [weak self] error in
+                    self?.runtimeConnectionState.setHookServerError("Hook server: \(error)")
+                    self?.render()
+                }
+            )
+            self.hookServer = hookServer
             try hookServer.start()
             hookServerListening = true
         } catch {
@@ -529,40 +536,48 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(connectionItem)
         menu.addItem(.separator())
 
-        let hudItem = NSMenuItem(title: "隐藏六任务 HUD", action: #selector(toggleHUD), keyEquivalent: "h")
+        let hudItem = NSMenuItem(title: L10n.tr("Hide six-task HUD"), action: #selector(toggleHUD), keyEquivalent: "h")
         hudItem.target = self
         hudMenuItem = hudItem
         menu.addItem(hudItem)
 
-        let settingsItem = NSMenuItem(title: "设置…", action: #selector(openSettings), keyEquivalent: ",")
+        let settingsItem = NSMenuItem(title: L10n.tr("Settings…"), action: #selector(openSettings), keyEquivalent: ",")
         settingsItem.target = self
         menu.addItem(settingsItem)
 
-        let resetHUDItem = NSMenuItem(title: "重置 HUD 尺寸与位置", action: #selector(resetHUD), keyEquivalent: "")
+        let onboardingItem = NSMenuItem(
+            title: L10n.tr("Run Setup Assistant…"),
+            action: #selector(openOnboarding),
+            keyEquivalent: ""
+        )
+        onboardingItem.target = self
+        menu.addItem(onboardingItem)
+
+        let resetHUDItem = NSMenuItem(title: L10n.tr("Reset HUD size and position"), action: #selector(resetHUD), keyEquivalent: "")
         resetHUDItem.target = self
         menu.addItem(resetHUDItem)
 
-        let openItem = NSMenuItem(title: "打开 Codex", action: #selector(openCodex), keyEquivalent: "o")
+        let openItem = NSMenuItem(title: L10n.tr("Open Codex"), action: #selector(openCodex), keyEquivalent: "o")
         openItem.target = self
         menu.addItem(openItem)
 
-        let integrationItem = NSMenuItem(title: "安装 Codex Hooks 与基础快捷键…", action: #selector(installIntegration), keyEquivalent: "")
+        let integrationItem = NSMenuItem(title: L10n.tr("Install Codex hooks and base shortcuts…"), action: #selector(installIntegration), keyEquivalent: "")
         integrationItem.target = self
         menu.addItem(integrationItem)
 
-        let accessibilityItem = NSMenuItem(title: "授予辅助功能权限…", action: #selector(requestAccessibility), keyEquivalent: "")
+        let accessibilityItem = NSMenuItem(title: L10n.tr("Grant Accessibility permission…"), action: #selector(requestAccessibility), keyEquivalent: "")
         accessibilityItem.target = self
         menu.addItem(accessibilityItem)
         menu.addItem(.separator())
 
-        let quitItem = NSMenuItem(title: "退出 TourBox Micro", action: #selector(quit), keyEquivalent: "q")
+        let quitItem = NSMenuItem(title: L10n.tr("Quit TourBox Micro"), action: #selector(quit), keyEquivalent: "q")
         quitItem.target = self
         menu.addItem(quitItem)
         statusItem.menu = menu
     }
 
     private func updateHUDMenuTitle() {
-        hudMenuItem?.title = hudVisible ? "隐藏六任务 HUD" : "显示六任务 HUD"
+        hudMenuItem?.title = hudVisible ? L10n.tr("Hide six-task HUD") : L10n.tr("Show six-task HUD")
     }
 
     @objc private func toggleHUD() {
@@ -600,70 +615,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func openSettings() {
         if settingsWindowController == nil {
-            let callbacks = SettingsCallbacks(
-                setHUDVisible: { [weak self] visible in
-                    self?.setHUDVisible(visible)
-                },
-                setHUDStyle: { [weak self] style in
-                    guard let self else { return }
-                    guard style != self.hudStyle else { return }
-                    self.hudStyle = style
-                    PreferencesStore.saveHUDStyle(style)
-                    self.hudController?.setStyle(style)
-                    self.lastHUDRenderState = nil
-                    self.render()
-                },
-                setHUDHoverDetails: { [weak self] enabled in
-                    guard let self else { return }
-                    guard enabled != self.hudHoverDetailsEnabled else { return }
-                    self.hudHoverDetailsEnabled = enabled
-                    PreferencesStore.saveHUDHoverDetails(enabled)
-                    self.hudController?.setHoverDetailsEnabled(enabled)
-                },
-                setHUDStatusNotifications: { [weak self] enabled in
-                    guard let self else { return }
-                    guard enabled != self.hudStatusNotificationsEnabled else { return }
-                    self.hudStatusNotificationsEnabled = enabled
-                    PreferencesStore.saveHUDStatusNotifications(enabled)
-                    self.hudController?.setStatusNotificationsEnabled(enabled)
-                },
-                setHUDAnimations: { [weak self] enabled in
-                    guard let self else { return }
-                    guard enabled != self.hudAnimationsEnabled else { return }
-                    self.hudAnimationsEnabled = enabled
-                    PreferencesStore.saveHUDAnimations(enabled)
-                    self.hudController?.setAnimationsEnabled(enabled)
-                },
-                setSlotMode: { [weak self] mode in
-                    guard let self else { return }
-                    guard mode != self.slotMode else { return }
-                    self.slotMode = mode
-                    PreferencesStore.saveSlotMode(mode)
-                    self.resolveSlots()
-                },
-                setMapping: { [weak self] mapping in
-                    guard let self else { return }
-                    self.mappingConfiguration = mapping
-                    self.router.updateConfiguration(mapping)
-                    PreferencesStore.saveMapping(mapping)
-                },
-                openCodex: { [weak self] in self?.codexController.openCodex() },
-                installIntegration: { [weak self] in
-                    guard let self else { return "App 正在退出。" }
-                    return try self.performInstallIntegration()
-                },
-                requestAccessibility: { [weak self] in self?.codexController.requestAccessibilityAccess() }
-            )
-            let model = SettingsModel(
-                hudVisible: hudVisible,
-                hudStyle: hudStyle,
-                hudHoverDetailsEnabled: hudHoverDetailsEnabled,
-                hudStatusNotificationsEnabled: hudStatusNotificationsEnabled,
-                hudAnimationsEnabled: hudAnimationsEnabled,
-                slotMode: slotMode,
-                mapping: mappingConfiguration,
-                callbacks: callbacks
-            )
+            let model = makeSettingsModel()
             settingsWindowController = SettingsWindowController(model: model) { [weak self] in
                 self?.settingsWindowController = nil
             }
@@ -672,6 +624,93 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             updateSettingsModel(model)
         }
         settingsWindowController?.show()
+    }
+
+    @objc private func openOnboarding() {
+        if onboardingWindowController == nil {
+            let model = makeSettingsModel()
+            onboardingWindowController = OnboardingWindowController(
+                model: model,
+                onComplete: { [weak self] in self?.completeOnboarding() },
+                onClose: { [weak self] in self?.onboardingWindowController = nil }
+            )
+        }
+        if let model = onboardingWindowController?.model {
+            updateSettingsModel(model)
+        }
+        onboardingWindowController?.show()
+    }
+
+    private func completeOnboarding() {
+        PreferencesStore.saveOnboardingCompleted(true)
+        onboardingWindowController?.close()
+        onboardingWindowController = nil
+    }
+
+    private func makeSettingsModel() -> SettingsModel {
+        let callbacks = SettingsCallbacks(
+            setHUDVisible: { [weak self] visible in
+                self?.setHUDVisible(visible)
+            },
+            setHUDStyle: { [weak self] style in
+                guard let self, style != self.hudStyle else { return }
+                self.hudStyle = style
+                PreferencesStore.saveHUDStyle(style)
+                self.hudController?.setStyle(style)
+                self.lastHUDRenderState = nil
+                self.render()
+            },
+            setHUDHoverDetails: { [weak self] enabled in
+                guard let self, enabled != self.hudHoverDetailsEnabled else { return }
+                self.hudHoverDetailsEnabled = enabled
+                PreferencesStore.saveHUDHoverDetails(enabled)
+                self.hudController?.setHoverDetailsEnabled(enabled)
+            },
+            setHUDStatusNotifications: { [weak self] enabled in
+                guard let self, enabled != self.hudStatusNotificationsEnabled else { return }
+                self.hudStatusNotificationsEnabled = enabled
+                PreferencesStore.saveHUDStatusNotifications(enabled)
+                self.hudController?.setStatusNotificationsEnabled(enabled)
+            },
+            setHUDAnimations: { [weak self] enabled in
+                guard let self, enabled != self.hudAnimationsEnabled else { return }
+                self.hudAnimationsEnabled = enabled
+                PreferencesStore.saveHUDAnimations(enabled)
+                self.hudController?.setAnimationsEnabled(enabled)
+            },
+            setSlotMode: { [weak self] mode in
+                guard let self, mode != self.slotMode else { return }
+                self.slotMode = mode
+                PreferencesStore.saveSlotMode(mode)
+                self.resolveSlots()
+            },
+            setMapping: { [weak self] mapping in
+                guard let self else { return }
+                self.mappingConfiguration = mapping
+                self.router.updateConfiguration(mapping)
+                PreferencesStore.saveMapping(mapping)
+            },
+            openCodex: { [weak self] in self?.codexController.openCodex() },
+            openPresetGuide: {
+                guard let url = URL(string: "https://github.com/MJYKIM99/tourbox-micro/blob/main/Docs/TOURBOX_PRESET.md") else { return }
+                NSWorkspace.shared.open(url)
+            },
+            installIntegration: { [weak self] in
+                guard let self else { return L10n.tr("The app is quitting.") }
+                return try self.performInstallIntegration()
+            },
+            requestAccessibility: { [weak self] in self?.codexController.requestAccessibilityAccess() }
+        )
+        return SettingsModel(
+            hudVisible: hudVisible,
+            hudStyle: hudStyle,
+            hudHoverDetailsEnabled: hudHoverDetailsEnabled,
+            hudStatusNotificationsEnabled: hudStatusNotificationsEnabled,
+            hudAnimationsEnabled: hudAnimationsEnabled,
+            slotMode: slotMode,
+            mapping: mappingConfiguration,
+            callbacks: callbacks
+        )
     }
 
     @objc private func openCodex() {
@@ -685,31 +724,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func installIntegration() {
         do {
             showAlert(
-                title: "Codex integration installed",
+                title: L10n.tr("Codex integration installed"),
                 message: try performInstallIntegration()
             )
         } catch {
-            showAlert(title: "Installation failed", message: error.localizedDescription)
+            showAlert(title: L10n.tr("Installation failed"), message: error.localizedDescription)
         }
     }
 
     private func performInstallIntegration() throws -> String {
         let codexDirectory = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".codex")
-        let hooks = try ConfigurationInstaller.installHooks(at: codexDirectory.appendingPathComponent("hooks.json"))
+        let token = try HookAuthentication.loadOrCreateToken()
+        let hooks = try ConfigurationInstaller.installHooks(
+            at: codexDirectory.appendingPathComponent("hooks.json"),
+            authenticationToken: token
+        )
         let keys = try ConfigurationInstaller.installKeybindings(at: codexDirectory.appendingPathComponent("keybindings.json"))
         let backups = [hooks.backupPath, keys.backupPath].compactMap { $0 }
-        let backupText = backups.isEmpty ? "本次无需创建备份。" : "备份：\n\(backups.joined(separator: "\n"))"
-        return """
-        Hooks 与基础快捷键已安装，现有设置已保留。重启 Codex，并在提示时检查并信任 Hooks。
-
-        推理旋钮需要人工绑定一次：
-        1. 打开 Codex 设置 → 键盘快捷键
-        2. 搜索“推理”或“effort”
-        3. 录制“增加推理强度”时向右转旋钮一格（F16）
-        4. 录制“降低推理强度”时向左转旋钮一格（F17）
-
-        \(backupText)
-        """
+        let backupText = backups.isEmpty
+            ? L10n.tr("No backup was needed this time.")
+            : L10n.format("Backups:\n%@", backups.joined(separator: "\n"))
+        return L10n.format(
+            "Hooks and base shortcuts are installed, and existing settings were preserved. Restart Codex and review and trust the hooks when prompted.\n\nBind the reasoning knob once:\n1. Open Codex Settings → Keyboard Shortcuts\n2. Search for “reasoning” or “effort”\n3. While recording “Increase reasoning effort,” turn the knob one step right (F16)\n4. While recording “Decrease reasoning effort,” turn the knob one step left (F17)\n\n%@",
+            backupText
+        )
     }
 
     private func showAlert(title: String, message: String) {
@@ -717,7 +755,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         alert.messageText = title
         alert.informativeText = message
         alert.alertStyle = .informational
-        alert.addButton(withTitle: "OK")
+        alert.addButton(withTitle: L10n.tr("OK"))
         NSApp.activate(ignoringOtherApps: true)
         alert.runModal()
     }

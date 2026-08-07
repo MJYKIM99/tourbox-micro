@@ -5,6 +5,34 @@ follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-08-07
+
+### Added
+
+- Added complete English and Simplified Chinese localization with 247 catalog
+  keys and a CI check for locale parity, format placeholders, missing UI keys,
+  and hard-coded Han-character regressions.
+- Added a first-run Setup Assistant covering Codex, lifecycle Hooks,
+  Accessibility, the TourBox preset, and completion; it can be rerun from the
+  menu bar.
+- Added authenticated lifecycle hooks using a per-install 256-bit local token
+  stored with owner-only permissions.
+
+### Changed
+
+- Discover the newest versioned Codex `state_N.sqlite` database instead of
+  assuming `state_5.sqlite`, and report incompatible schemas without exposing
+  local paths.
+- Require a valid TourBox protocol event before a new TCP candidate can replace
+  an active hardware connection.
+- Updated the app metadata to version 0.9.0 (Build 19), with English as the
+  development region and explicit English and Simplified Chinese locales.
+
+### Security
+
+- Bounded lifecycle HTTP requests to 8 KiB of headers and 64 KiB of JSON, with
+  content-type validation, a three-second timeout, and an eight-connection cap.
+
 ### Fixed
 
 - Added atomic runtime status maintenance: semantically empty idle rows outside
@@ -105,7 +133,8 @@ follows [Semantic Versioning](https://semver.org/).
 - Swift Testing coverage for protocol, routing, configuration, persistence,
   rollout, display text, slot ordering, and transition behavior.
 
-[Unreleased]: https://github.com/MJYKIM99/tourbox-micro/compare/v0.8.1...HEAD
+[Unreleased]: https://github.com/MJYKIM99/tourbox-micro/compare/v0.9.0...HEAD
+[0.9.0]: https://github.com/MJYKIM99/tourbox-micro/compare/v0.8.1...v0.9.0
 [0.8.1]: https://github.com/MJYKIM99/tourbox-micro/compare/v0.8.0...v0.8.1
 [0.8.0]: https://github.com/MJYKIM99/tourbox-micro/compare/v0.7.2...v0.8.0
 [0.7.2]: https://github.com/MJYKIM99/tourbox-micro/releases/tag/v0.7.2

@@ -41,7 +41,7 @@ public enum ConfigurationInstaller {
     ]
 
     @discardableResult
-    public static func installHooks(at url: URL) throws -> ConfigurationChange {
+    public static func installHooks(at url: URL, authenticationToken: String) throws -> ConfigurationChange {
         var root = try loadJSONObject(at: url, defaultValue: ["hooks": [String: Any]()])
         guard var rootDictionary = root as? [String: Any] else {
             throw ConfigurationInstallerError.invalidRoot(url, expected: "a JSON object")
@@ -55,7 +55,7 @@ public enum ConfigurationInstaller {
             var entries = hooks[event.rawValue] as? [Any] ?? []
             let originalCount = entries.count
             entries.removeAll(where: containsManagedHook)
-            let command = hookCommand(for: event)
+            let command = hookCommand(for: event, authenticationToken: authenticationToken)
             entries.append([
                 "hooks": [[
                     "type": "command",
@@ -148,9 +148,23 @@ public enum ConfigurationInstaller {
         containsKeybindings(manualReasoningKeybindings, at: url)
     }
 
-    public static func hookCommand(for event: CodexHookEvent) -> String {
+    public static func managedHooksInstalled(at url: URL, authenticationToken: String) -> Bool {
+        guard let data = try? Data(contentsOf: url),
+              let root = try? JSONSerialization.jsonObject(with: data),
+              let dictionary = root as? [String: Any],
+              let hooks = dictionary["hooks"] as? [String: Any] else {
+            return false
+        }
+        return CodexHookEvent.allCases.allSatisfy { event in
+            guard let entries = hooks[event.rawValue] else { return false }
+            return containsCommand(hookCommand(for: event, authenticationToken: authenticationToken), in: entries)
+        }
+    }
+
+    public static func hookCommand(for event: CodexHookEvent, authenticationToken: String) -> String {
         "curl -s --max-time 1 -X POST http://\(hookMarker)\(event.rawValue) " +
-        "-H 'Content-Type: application/json' --data-binary @- >/dev/null 2>&1 || true; printf '{}'"
+        "-H 'Content-Type: application/json' -H '\(HookAuthentication.headerName): \(authenticationToken)' " +
+        "--data-binary @- >/dev/null 2>&1 || true; printf '{}'"
     }
 
     private static func containsManagedHook(_ value: Any) -> Bool {

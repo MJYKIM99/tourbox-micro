@@ -46,9 +46,28 @@ public enum ThreadRepositoryError: LocalizedError, Sendable {
 public struct ThreadRepository: Sendable {
     public let databaseURL: URL
 
-    public init(databaseURL: URL = FileManager.default.homeDirectoryForCurrentUser
-        .appendingPathComponent(".codex/state_5.sqlite")) {
+    public init(databaseURL: URL = ThreadRepository.discoverDatabaseURL()) {
         self.databaseURL = databaseURL
+    }
+
+    public static func discoverDatabaseURL(
+        in codexDirectory: URL = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".codex")
+    ) -> URL {
+        let fallback = codexDirectory.appendingPathComponent("state_5.sqlite")
+        guard let candidates = try? FileManager.default.contentsOfDirectory(
+            at: codexDirectory,
+            includingPropertiesForKeys: [.isRegularFileKey],
+            options: [.skipsHiddenFiles]
+        ) else { return fallback }
+
+        return candidates.compactMap { url -> (version: Int, url: URL)? in
+            let name = url.lastPathComponent
+            guard name.hasPrefix("state_"), name.hasSuffix(".sqlite") else { return nil }
+            let start = name.index(name.startIndex, offsetBy: "state_".count)
+            let end = name.index(name.endIndex, offsetBy: -".sqlite".count)
+            guard let version = Int(name[start..<end]) else { return nil }
+            return (version, url)
+        }.max { $0.version < $1.version }?.url ?? fallback
     }
 
     /// A cheap change token for the main database and SQLite WAL sidecar.
@@ -79,7 +98,7 @@ public struct ThreadRepository: Sendable {
                 operation: "open",
                 resultCode: openResult,
                 database: database,
-                fallbackMessage: "无法打开 Codex 状态数据库"
+                fallbackMessage: CoreL10n.tr("Unable to open the Codex state database")
             )
         }
         defer { sqlite3_close(database) }
@@ -99,9 +118,10 @@ public struct ThreadRepository: Sendable {
         let prepareResult = sqlite3_prepare_v2(database, query, -1, &statement, nil)
         guard prepareResult == SQLITE_OK, let statement else {
             throw sqliteError(
-                operation: "prepare",
+                operation: "schema",
                 resultCode: prepareResult,
-                database: database
+                database: database,
+                fallbackMessage: "The Codex state database schema is not compatible with this version."
             )
         }
         defer { sqlite3_finalize(statement) }
@@ -165,7 +185,7 @@ public struct ThreadRepository: Sendable {
         operation: String,
         resultCode: Int32,
         database: OpaquePointer?,
-        fallbackMessage: String = "Codex 状态数据库读取失败"
+        fallbackMessage: String = "The Codex state database could not be read."
     ) -> ThreadRepositoryError {
         let primaryCode = database.map(sqlite3_errcode) ?? (resultCode & 0xFF)
         let extendedCode = database.map(sqlite3_extended_errcode) ?? resultCode
@@ -175,7 +195,7 @@ public struct ThreadRepository: Sendable {
                 primaryCode: primaryCode,
                 extendedCode: extendedCode
             ),
-            message: database.map(sqliteMessage) ?? fallbackMessage
+            message: operation == "schema" ? fallbackMessage : (database.map(sqliteMessage) ?? fallbackMessage)
         )
     }
 

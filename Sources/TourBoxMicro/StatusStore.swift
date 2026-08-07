@@ -14,7 +14,7 @@ final class StatusStore {
             self.repository = repository
             activities = (try? repository.loadActivities()) ?? []
             persistenceAvailable = true
-            persistenceDetail = "SQLite WAL 已启用"
+            persistenceDetail = L10n.tr("SQLite WAL enabled")
             return
         }
 
@@ -33,7 +33,7 @@ final class StatusStore {
             self.repository = openedRepository
             activities = restoredActivities
             persistenceAvailable = true
-            persistenceDetail = "SQLite WAL · \(activities.count) 条状态"
+            persistenceDetail = L10n.format("SQLite WAL · %d states", activities.count)
         } catch {
             self.repository = nil
             activities = []
@@ -68,7 +68,7 @@ final class StatusStore {
                         cwd: snapshot.cwd,
                         state: .thinking,
                         updatedAt: snapshot.updatedAt,
-                        detail: "从任务记录恢复"
+                        detail: L10n.tr("Recovered from task history")
                     ),
                     persist: true
                 )
@@ -85,7 +85,7 @@ final class StatusStore {
                         cwd: snapshot.cwd,
                         state: .complete,
                         updatedAt: snapshot.updatedAt,
-                        detail: "离线期间已完成"
+                        detail: L10n.tr("Completed while offline")
                     ),
                     persist: true
                 )
@@ -115,7 +115,7 @@ final class StatusStore {
                 sortAndTrim()
             }
             persistenceAvailable = true
-            persistenceDetail = "SQLite WAL · \(activities.count) 条状态"
+            persistenceDetail = L10n.format("SQLite WAL · %d states", activities.count)
             return result
         } catch {
             persistenceAvailable = false
@@ -144,7 +144,7 @@ final class StatusStore {
         sortAndTrim()
         do {
             try repository?.acknowledgeCompletion(for: thread, at: acknowledgedAt)
-            persistenceDetail = "SQLite WAL · \(activities.count) 条状态"
+            persistenceDetail = L10n.format("SQLite WAL · %d states", activities.count)
         } catch {
             persistenceAvailable = false
             persistenceDetail = error.localizedDescription
@@ -174,8 +174,8 @@ final class StatusStore {
             _ = try repository?.upsert(activity)
             persistenceAvailable = repository != nil
             persistenceDetail = repository == nil
-                ? "SQLite 不可用，使用内存状态"
-                : "SQLite WAL · \(activities.count) 条状态"
+                ? L10n.tr("SQLite unavailable; using in-memory state")
+                : L10n.format("SQLite WAL · %d states", activities.count)
         } catch {
             persistenceAvailable = false
             persistenceDetail = error.localizedDescription

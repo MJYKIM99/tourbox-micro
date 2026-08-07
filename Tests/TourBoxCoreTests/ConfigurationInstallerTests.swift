@@ -18,8 +18,9 @@ import Testing
     let data = try JSONSerialization.data(withJSONObject: original)
     try data.write(to: url)
 
-    _ = try ConfigurationInstaller.installHooks(at: url)
-    _ = try ConfigurationInstaller.installHooks(at: url)
+    let token = String(repeating: "a", count: 64)
+    _ = try ConfigurationInstaller.installHooks(at: url, authenticationToken: token)
+    _ = try ConfigurationInstaller.installHooks(at: url, authenticationToken: token)
 
     let installed = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
     let hooks = try #require(installed["hooks"] as? [String: Any])
@@ -40,6 +41,8 @@ import Testing
         }.count
         #expect(managedCount == 1)
     }
+    #expect(ConfigurationInstaller.managedHooksInstalled(at: url, authenticationToken: token))
+    #expect(!ConfigurationInstaller.managedHooksInstalled(at: url, authenticationToken: String(repeating: "b", count: 64)))
 }
 
 @Test func keybindingInstallPreservesUnrelatedBindings() throws {

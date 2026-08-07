@@ -35,7 +35,7 @@ struct RolloutPresentationReaderTests {
 
         let snapshot = RolloutPresentationReader().snapshot(for: thread(rolloutPath: url.path))
 
-        #expect(snapshot?.latestMessage == "正在处理，等待新的进展…")
+        #expect(snapshot?.latestMessage == "Working; waiting for new progress…")
     }
 
     @Test func ignoresUserAndReasoningItems() throws {

@@ -12,7 +12,7 @@ public enum ThreadDisplayText {
         let cleanedTitle = normalized(rawTitle)
         if !cleanedTitle.isEmpty { return cleanedTitle }
         let cleanedPreview = normalized(preview)
-        return cleanedPreview.isEmpty ? "未命名任务" : cleanedPreview
+        return cleanedPreview.isEmpty ? CoreL10n.tr("Untitled task") : cleanedPreview
     }
 
     private static func taggedInput(in text: String) -> String? {

@@ -28,7 +28,7 @@ lifecycle persistence in one small menu-bar app.
 
 > [!IMPORTANT]
 > TourBox Micro is an independent public beta. It is not affiliated with or
-> endorsed by TourBox Tech or OpenAI. Version **0.8.1 (Build 18)** is tested
+> endorsed by TourBox Tech or OpenAI. Version **0.9.0 (Build 19)** is tested
 > with TourBox Elite, TourBox Console 5.2.6, and macOS 14 or later.
 
 <p align="center">
@@ -49,6 +49,7 @@ lifecycle persistence in one small menu-bar app.
 | True push-to-talk | Short press starts voice input and release stops it using real press/release events |
 | Local state recovery | SQLite persistence plus bounded rollout-tail recovery after relaunch |
 | Native settings and diagnostics | Configure mappings, HUD behavior, launch at login, permissions, and integrations |
+| Guided bilingual setup | English and Simplified Chinese UI with a first-run Codex → Hooks → Accessibility → preset assistant |
 | Energy-aware runtime | Native SQLite, bounded background reconciliation, deduplicated rendering, and no hidden-window animation |
 
 ## How it works
@@ -60,8 +61,8 @@ flowchart LR
     APP --> ROUTER["Input and modifier routing"]
     ROUTER --> CODEX["Codex desktop<br/>Deep links and shortcuts"]
 
-    HOOKS["Codex lifecycle hooks"] -->|"HTTP 127.0.0.1:50501"| STATUS["State store and slot resolver"]
-    DB["Codex state_5.sqlite<br/>Bounded rollout tails"] --> STATUS
+    HOOKS["Codex lifecycle hooks"] -->|"Authenticated HTTP<br/>127.0.0.1:50501"| STATUS["State store and slot resolver"]
+    DB["Newest Codex state_N.sqlite<br/>Bounded rollout tails"] --> STATUS
     STATUS --> HUD["Six-task HUD"]
     APP --> HUD
 ```
@@ -98,6 +99,10 @@ swift test
 open "/Applications/TourBox Micro.app"
 ```
 
+On first launch, Setup Assistant walks through Codex detection, authenticated
+hooks, Accessibility permission, and the TourBox preset. Rerun it at any time
+from the menu-bar app.
+
 The build script preserves the Apple Development identity of an existing
 `/Applications/TourBox Micro.app`; on first install it selects the first
 available development identity. Override it when needed:
@@ -122,7 +127,8 @@ Open **Settings → Overview → Reinstall Codex Integration**, or run:
 
 The installer merges its entries into `~/.codex/hooks.json` and
 `~/.codex/keybindings.json`. It creates timestamped backups before changing
-either file and leaves unrelated entries intact.
+either file and leaves unrelated entries intact. Lifecycle requests carry a
+per-install token stored locally with owner-only file permissions.
 
 ### 4. Generate and import the TourBox preset
 
@@ -240,6 +246,11 @@ TourBox Micro stores lifecycle metadata in:
 ~/Library/Application Support/TourBox Micro/status.sqlite3
 ```
 
+The authenticated loopback hook token is stored separately at
+`~/Library/Application Support/TourBox Micro/hook-token` with `0600`
+permissions. It is used only between the installed Codex hook commands and the
+local listener.
+
 The database contains task IDs, working directories, lifecycle states,
 timestamps, and completion acknowledgement. The latest visible progress is
 read from a bounded rollout-file tail and kept in memory; complete prompts,
@@ -275,6 +286,9 @@ swift test
 
 # Open Settings directly
 open "/Applications/TourBox Micro.app" --args --settings
+
+# Reopen Setup Assistant
+open "/Applications/TourBox Micro.app" --args --onboarding
 ```
 
 Releases are currently source-only. The project does not publish development-
@@ -283,8 +297,9 @@ signed or unnotarized application bundles. See
 distribution requirements.
 
 The test suite covers protocol decoding, modifier routing, configurable
-mappings, configuration merging, persistence, rollout recovery, display-text
-cleanup, slot ordering, and status-transition feedback.
+mappings, authenticated and bounded hook parsing, configuration merging,
+database-version discovery, persistence, rollout recovery, display-text
+cleanup, slot ordering, status transitions, and localization integrity.
 
 ```text
 tourbox-micro/

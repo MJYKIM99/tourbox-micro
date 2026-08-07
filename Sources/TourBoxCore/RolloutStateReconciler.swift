@@ -161,7 +161,7 @@ public struct RolloutPresentationReader: Sendable {
            latestAssistantMessage.map({ $0.date < taskStart }) ?? true {
             return RolloutPresentationSnapshot(
                 threadID: thread.id,
-                latestMessage: "正在处理，等待新的进展…",
+                latestMessage: CoreL10n.tr("Working; waiting for new progress…"),
                 updatedAt: taskStart
             )
         }

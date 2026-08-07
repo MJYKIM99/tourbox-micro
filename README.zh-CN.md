@@ -27,7 +27,7 @@ TourBox Micro 是一个原生 macOS 桥接应用，把 TourBox Console 的 Max/M
 
 > [!IMPORTANT]
 > TourBox Micro 是独立开发的公开测试版，与 TourBox Tech 或 OpenAI 没有关联，
-> 也未获得其官方背书。版本 **0.8.1（Build 18）** 已在 TourBox Elite、
+> 也未获得其官方背书。版本 **0.9.0（Build 19）** 已在 TourBox Elite、
 > TourBox Console 5.2.6 和 macOS 14 或更高版本上测试。
 
 <p align="center">
@@ -48,6 +48,7 @@ TourBox Micro 是一个原生 macOS 桥接应用，把 TourBox Console 的 Max/M
 | 真正的按住说话 | Short 按下开始、松开停止，保留真实 press/release 语义 |
 | 本地状态恢复 | SQLite 持久化，并在重启后从 rollout 文件的有限尾部恢复状态 |
 | 原生设置与诊断 | 配置按键、HUD、登录启动、权限和 Codex 集成 |
+| 双语引导设置 | 英文与简体中文 UI，以及 Codex → Hooks → 辅助功能 → 预设首次启动向导 |
 | 能耗友好的运行时 | 原生 SQLite、有限后台对账、去重渲染，并在窗口隐藏时停止 UI 工作 |
 
 ## 工作原理
@@ -59,8 +60,8 @@ flowchart LR
     APP --> ROUTER["输入与修饰层路由"]
     ROUTER --> CODEX["Codex 桌面端<br/>Deep link 与快捷键"]
 
-    HOOKS["Codex 生命周期 Hooks"] -->|"HTTP 127.0.0.1:50501"| STATUS["状态存储与槽位解析"]
-    DB["Codex state_5.sqlite<br/>有限 rollout 文件尾部"] --> STATUS
+    HOOKS["Codex 生命周期 Hooks"] -->|"带认证的 HTTP<br/>127.0.0.1:50501"| STATUS["状态存储与槽位解析"]
+    DB["最新 Codex state_N.sqlite<br/>有限 rollout 文件尾部"] --> STATUS
     STATUS --> HUD["六任务 HUD"]
     APP --> HUD
 ```
@@ -96,6 +97,9 @@ swift test
 open "/Applications/TourBox Micro.app"
 ```
 
+首次启动时，设置向导会依次完成 Codex 检测、认证 Hooks、辅助功能权限和
+TourBox 预设。之后可随时从菜单栏重新运行向导。
+
 如果 `/Applications/TourBox Micro.app` 已存在，构建脚本会沿用它的 Apple
 Development 签名身份；首次安装则选择第一个可用的开发身份。需要时可以覆盖：
 
@@ -118,6 +122,7 @@ TOURBOX_SIGNING_IDENTITY="Apple Development: Your Name (TEAMID)" \
 
 安装器会把自己的配置合并到 `~/.codex/hooks.json` 与
 `~/.codex/keybindings.json`。修改前会创建带时间戳的备份，并保留所有无关配置。
+生命周期请求会携带每次安装独有的本地 token，其文件仅允许当前用户读取。
 
 ### 4. 生成并导入 TourBox 预设
 
@@ -226,6 +231,10 @@ TourBox Micro 把生命周期元数据存储在：
 ~/Library/Application Support/TourBox Micro/status.sqlite3
 ```
 
+经过认证的回环 Hook token 单独保存在
+`~/Library/Application Support/TourBox Micro/hook-token`，权限为 `0600`。
+它只用于已安装的 Codex Hook 命令与本机监听器之间的通信。
+
 数据库只包含任务 ID、工作目录、生命周期状态、时间戳和完成确认状态。最近一条
 可见进展从 rollout 文件的有限尾部读取并保存在内存中；TourBox Micro 不会保存
 完整 prompt、回复、推理内容、剪贴板数据或 TourBox 输入，也不会上传这些数据。
@@ -258,13 +267,17 @@ swift test
 
 # 直接打开设置页
 open "/Applications/TourBox Micro.app" --args --settings
+
+# 重新打开设置向导
+open "/Applications/TourBox Micro.app" --args --onboarding
 ```
 
 当前 Release 只发布源码，不分发开发签名或未经 Apple 公证的应用包。发布清单与
 二进制分发要求见 [Docs/RELEASING.md](Docs/RELEASING.md)。
 
-测试覆盖协议解码、修饰层路由、可配置映射、配置合并、状态持久化、rollout
-恢复、显示文本清理、槽位排序和状态变化反馈。
+测试覆盖协议解码、修饰层路由、可配置映射、带认证且有边界的 Hook 解析、
+配置合并、数据库版本发现、状态持久化、rollout 恢复、显示文本清理、槽位排序、
+状态变化反馈和本地化完整性。
 
 ```text
 tourbox-micro/

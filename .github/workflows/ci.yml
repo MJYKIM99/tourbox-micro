@@ -47,3 +47,6 @@ jobs:
 
       - name: Run tests
         run: swift test
+
+      - name: Check localization integrity
+        run: ruby Scripts/check-localizations.rb

@@ -61,11 +61,24 @@ import Testing
         Issue.record("Expected an invalid Codex schema to fail")
     } catch {
         let repositoryError = try #require(error as? ThreadRepositoryError)
-        #expect(repositoryError.diagnostic.operation == "prepare")
+        #expect(repositoryError.diagnostic.operation == "schema")
         #expect(repositoryError.diagnostic.primaryCode != SQLITE_OK)
         #expect(repositoryError.diagnostic.extendedCode != SQLITE_OK)
         #expect(repositoryError.localizedDescription.contains(invalidURL.path) == false)
     }
+}
+
+@Test func threadRepositoryDiscoversNewestVersionedDatabase() throws {
+    let directory = FileManager.default.temporaryDirectory
+        .appendingPathComponent("tourbox-thread-discovery-tests-\(UUID().uuidString)")
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+
+    for name in ["state_5.sqlite", "state_12.sqlite", "state_backup.sqlite", "state_20.sqlite-wal"] {
+        try Data().write(to: directory.appendingPathComponent(name))
+    }
+
+    #expect(ThreadRepository.discoverDatabaseURL(in: directory).lastPathComponent == "state_12.sqlite")
 }
 
 @Test func threadDatabaseFingerprintTracksMainDatabaseAndWriteAheadLog() throws {
