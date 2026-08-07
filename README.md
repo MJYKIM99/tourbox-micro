@@ -212,6 +212,12 @@ window trees instead of leaving them alive. The six lights share one masked
 native glass plane and use static state illumination instead of continuous
 per-light shimmer or breathing timelines.
 
+Version 0.8.1 also fingerprints the Codex database and its WAL sidecar before
+polling, so an unchanged database no longer gets reopened and decoded every
+cycle. Unknown hook thread IDs trigger immediate discovery, while a tolerant
+fifteen-second poll remains as a fallback. Rollout summaries are bounded to the
+recent-thread window.
+
 During manual diagnosis on an Apple M5 Pro MacBook Pro with a visible six-light
 HUD and several active tasks, 15 one-second process samples averaged **1.21% app
 CPU** after the change. The continuously animated implementations observed
@@ -219,6 +225,11 @@ during the investigation averaged between **6.08% and 14.64%**. This is a
 workload-specific diagnostic result rather than a portable benchmark; task mix,
 display refresh rate, macOS, and hardware affect the result. The implementation
 and measurement notes are documented in [Docs/PERFORMANCE.md](Docs/PERFORMANCE.md).
+
+A v0.8.1 follow-up reduced a comparable periodic-refresh sample from **0.80%**
+to **0.16% average app CPU** by combining database/WAL fingerprints, hook-driven
+thread discovery, and a fifteen-second fallback. See the performance notes for
+the sampling conditions and limitations.
 
 ## Local data and privacy
 

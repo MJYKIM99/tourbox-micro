@@ -1,5 +1,17 @@
+import Darwin
 import Foundation
 import SQLite3
+
+public struct ThreadDatabaseFingerprint: Equatable, Sendable {
+    fileprivate struct FileStamp: Equatable, Sendable {
+        let exists: Bool
+        let modificationDate: Date?
+        let fileSize: Int?
+    }
+
+    fileprivate let database: FileStamp
+    fileprivate let writeAheadLog: FileStamp
+}
 
 public struct ThreadRepository: Sendable {
     public let databaseURL: URL
@@ -7,6 +19,18 @@ public struct ThreadRepository: Sendable {
     public init(databaseURL: URL = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent(".codex/state_5.sqlite")) {
         self.databaseURL = databaseURL
+    }
+
+    /// A cheap change token for the main database and SQLite WAL sidecar.
+    /// SQLite normally commits Codex updates to the WAL without touching the
+    /// main database file, so both files are required for correct polling.
+    public func changeFingerprint() -> ThreadDatabaseFingerprint {
+        ThreadDatabaseFingerprint(
+            database: fileStamp(for: databaseURL),
+            writeAheadLog: fileStamp(
+                for: URL(fileURLWithPath: databaseURL.path + "-wal")
+            )
+        )
     }
 
     public func loadRecentThreads(limit: Int = 80) throws -> [CodexThread] {
@@ -86,6 +110,21 @@ public struct ThreadRepository: Sendable {
 
     private func sqliteMessage(_ database: OpaquePointer) -> String {
         String(cString: sqlite3_errmsg(database))
+    }
+
+    private func fileStamp(for url: URL) -> ThreadDatabaseFingerprint.FileStamp {
+        var information = stat()
+        let result = url.path.withCString { Darwin.lstat($0, &information) }
+        guard result == 0 else {
+            return .init(exists: false, modificationDate: nil, fileSize: nil)
+        }
+        let seconds = TimeInterval(information.st_mtimespec.tv_sec)
+        let nanoseconds = TimeInterval(information.st_mtimespec.tv_nsec) / 1_000_000_000
+        return .init(
+            exists: true,
+            modificationDate: Date(timeIntervalSince1970: seconds + nanoseconds),
+            fileSize: Int(information.st_size)
+        )
     }
 
     private enum RepositoryError: LocalizedError {

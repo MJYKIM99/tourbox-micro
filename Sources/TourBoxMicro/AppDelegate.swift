@@ -5,9 +5,10 @@ import TourBoxCore
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private enum RefreshPolicy {
-        static let threadInterval: TimeInterval = 5
+        static let threadInterval: TimeInterval = 15
         static let rolloutInterval: TimeInterval = 15
-        static let timerTolerance: TimeInterval = 1
+        static let timerTolerance: TimeInterval = 2
+        static let unknownThreadCooldown: TimeInterval = 2
     }
 
     private enum StatusPolicy {
@@ -34,7 +35,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let rolloutChangeMonitor = RolloutChangeMonitor(maximumThreads: 120)
     private let rolloutReconciler = RolloutStateReconciler(maximumThreads: 120)
     private let rolloutPresentationReader = RolloutPresentationReader(maximumThreads: 120)
-    private var latestRolloutMessages: [String: String] = [:]
+    private var rolloutPresentationCache = RolloutPresentationCache()
     private var slots: [AgentSlot] = (1...6).map { AgentSlot(index: $0, thread: nil, state: .off) }
     private var recentThreads: [CodexThread] = []
     private var activeSlotIndex: Int?
@@ -47,6 +48,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var refreshTimer: Timer?
     private var threadRefreshInFlight = false
     private var threadRefreshPending = false
+    private var lastThreadDatabaseFingerprint: ThreadDatabaseFingerprint?
+    private var lastUnknownThreadRefreshAt: Date?
     private var didStartRolloutReconciliation = false
     private var rolloutReconciliationInFlight = false
     private var lastRolloutReconciliationAt: Date?
@@ -72,6 +75,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private struct DeferredInputTask {
         let token: UUID
         let task: Task<Void, Never>
+    }
+
+    private struct ThreadRefreshOutcome: Sendable {
+        let threads: [CodexThread]?
+        let error: String?
+        let stableFingerprint: ThreadDatabaseFingerprint?
+        let unchanged: Bool
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -192,8 +202,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func applyHookSignal(_ signal: HookSignal) {
+        let shouldDiscoverUnknownThread = signal.threadID.map { threadID in
+            !recentThreads.contains { $0.id == threadID }
+        } ?? false
         statusStore.apply(signal)
         resolveSlots()
+        if shouldDiscoverUnknownThread {
+            let now = Date()
+            if lastUnknownThreadRefreshAt.map({
+                now.timeIntervalSince($0) >= RefreshPolicy.unknownThreadCooldown
+            }) ?? true {
+                lastUnknownThreadRefreshAt = now
+                refreshThreads()
+            }
+        }
     }
 
     private func refreshThreads() {
@@ -203,28 +225,58 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         threadRefreshInFlight = true
         let repository = repository
+        let previousFingerprint = lastThreadDatabaseFingerprint
 
         Task { [weak self] in
             let result = await Task.detached(priority: .utility) {
+                let fingerprintBeforeRead = repository.changeFingerprint()
+                if fingerprintBeforeRead == previousFingerprint {
+                    return ThreadRefreshOutcome(
+                        threads: nil,
+                        error: nil,
+                        stableFingerprint: fingerprintBeforeRead,
+                        unchanged: true
+                    )
+                }
                 do {
-                    return (
-                        threads: Optional(try repository.loadRecentThreads(limit: 200)),
-                        error: nil as String?
+                    let threads = try repository.loadRecentThreads(limit: 200)
+                    let fingerprintAfterRead = repository.changeFingerprint()
+                    return ThreadRefreshOutcome(
+                        threads: threads,
+                        error: nil,
+                        stableFingerprint: fingerprintBeforeRead == fingerprintAfterRead
+                            ? fingerprintAfterRead
+                            : nil,
+                        unchanged: false
                     )
                 } catch {
-                    return (threads: nil, error: error.localizedDescription)
+                    return ThreadRefreshOutcome(
+                        threads: nil,
+                        error: error.localizedDescription,
+                        stableFingerprint: nil,
+                        unchanged: false
+                    )
                 }
             }.value
             guard let self else { return }
             threadRefreshInFlight = false
 
-            if let threads = result.threads {
+            if result.unchanged {
+                startRolloutReconciliationIfNeeded()
+            } else if let threads = result.threads {
+                lastThreadDatabaseFingerprint = result.stableFingerprint
                 let recoveredFromError = runtimeConnectionState.clearCodexStateError()
                 if recoveredFromError {
                     lifecycleLogger.notice("Codex state database access recovered")
                 }
+                var presentationChanged = rolloutPresentationCache.retain(
+                    threadIDs: Set(threads.map(\.id))
+                )
                 if threads != recentThreads {
                     recentThreads = threads
+                    presentationChanged = true
+                }
+                if presentationChanged {
                     resolveSlots()
                 } else if recoveredFromError {
                     render()
@@ -272,13 +324,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             rolloutReconciliationInFlight = false
             let previousActivities = statusStore.activities
             statusStore.reconcile(result.0)
-            var presentationChanged = false
-            for snapshot in result.1 {
-                if latestRolloutMessages[snapshot.threadID] != snapshot.latestMessage {
-                    latestRolloutMessages[snapshot.threadID] = snapshot.latestMessage
-                    presentationChanged = true
-                }
-            }
+            let presentationChanged = rolloutPresentationCache.apply(result.1)
             if previousActivities != statusStore.activities || presentationChanged {
                 resolveSlots()
             }
@@ -296,7 +342,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 thread: slot.thread,
                 state: slot.state,
                 detail: slot.detail,
-                latestMessage: slot.thread.flatMap { latestRolloutMessages[$0.id] }
+                latestMessage: slot.thread.flatMap { rolloutPresentationCache[$0.id] }
             )
         }
         guard resolvedSlots != slots else { return }

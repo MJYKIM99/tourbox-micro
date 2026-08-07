@@ -24,6 +24,15 @@ follows [Semantic Versioning](https://semver.org/).
   task state cannot return as current attention.
 - Matched deferred hook events by both thread ID and working directory when one
   of the later hook payloads omits an identifier.
+- Bounded cached rollout summaries to the current recent-thread window instead
+  of retaining text for threads that can no longer appear in the HUD.
+
+### Performance
+
+- Added a main-database and WAL change fingerprint so the fallback poll performs
+  a full Codex SQLite query only after an actual database change.
+- Replaced five-second thread-list polling with immediate discovery for unknown
+  hook thread IDs and a tolerant fifteen-second fallback.
 
 ## [0.8.0] - 2026-08-06
 

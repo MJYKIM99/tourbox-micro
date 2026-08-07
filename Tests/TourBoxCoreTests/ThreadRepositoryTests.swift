@@ -61,6 +61,31 @@ import Testing
     }
 }
 
+@Test func threadDatabaseFingerprintTracksMainDatabaseAndWriteAheadLog() throws {
+    let directory = FileManager.default.temporaryDirectory
+        .appendingPathComponent("tourbox-thread-fingerprint-tests-\(UUID().uuidString)")
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let databaseURL = directory.appendingPathComponent("state.sqlite3")
+    let repository = ThreadRepository(databaseURL: databaseURL)
+
+    let missing = repository.changeFingerprint()
+    #expect(repository.changeFingerprint() == missing)
+
+    try createThreadDatabase(at: databaseURL, statements: "")
+    let created = repository.changeFingerprint()
+    #expect(created != missing)
+    #expect(repository.changeFingerprint() == created)
+
+    let walURL = URL(fileURLWithPath: databaseURL.path + "-wal")
+    try Data("first commit".utf8).write(to: walURL)
+    let firstWAL = repository.changeFingerprint()
+    #expect(firstWAL != created)
+
+    try Data("second, larger commit".utf8).write(to: walURL)
+    #expect(repository.changeFingerprint() != firstWAL)
+}
+
 private func createThreadDatabase(at url: URL, statements: String) throws {
     try createSQLiteDatabase(at: url, statements: """
         CREATE TABLE threads (
