@@ -46,6 +46,7 @@ if arguments.contains("--doctor") {
     print("State database: \(fileManager.fileExists(atPath: databaseURL.path) ? "found (\(databaseURL.lastPathComponent))" : "missing")")
     print("Lifecycle hooks: \(token.map { ConfigurationInstaller.managedHooksInstalled(at: hooksURL, authenticationToken: $0) } == true ? "installed" : "not installed")")
     print("Managed shortcuts F13-F15: \(ConfigurationInstaller.managedKeybindingsInstalled(at: keybindingsURL) ? "installed" : "not installed")")
+    print("Chat search shortcut F18: \(ConfigurationInstaller.searchKeybindingInstalled(at: keybindingsURL) ? "installed" : "not installed")")
     print("Manual reasoning F16/F17: \(ConfigurationInstaller.manualReasoningKeybindingsInstalled(at: keybindingsURL) ? "assigned" : "not assigned")")
     print("Accessibility: \(AXIsProcessTrusted() ? "granted" : "not granted")")
     exit(EXIT_SUCCESS)

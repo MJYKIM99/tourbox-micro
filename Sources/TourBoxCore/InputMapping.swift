@@ -19,13 +19,17 @@ public enum ButtonAction: String, Codable, CaseIterable, Hashable, Sendable {
     case screenshot
     case previousRecentChat
     case nextRecentChat
+    case nextNeedingAttention
     case searchChats
     case jumpToLatest
+    case copyDeepLink
     case previousChat
     case nextChat
     case navigateBack
     case navigateForward
     case toggleSidebar
+    case toggleBottomPanel
+    case openBrowserTab
 
     public var microAction: MicroAction? {
         switch self {
@@ -47,13 +51,17 @@ public enum ButtonAction: String, Codable, CaseIterable, Hashable, Sendable {
         case .screenshot: .screenshot
         case .previousRecentChat: .previousRecentChat
         case .nextRecentChat: .nextRecentChat
+        case .nextNeedingAttention: .nextNeedingAttention
         case .searchChats: .searchChats
         case .jumpToLatest: .jumpToLatest
+        case .copyDeepLink: .copyDeepLink
         case .previousChat: .previousChat
         case .nextChat: .nextChat
         case .navigateBack: .navigateBack
         case .navigateForward: .navigateForward
         case .toggleSidebar: .toggleSidebar
+        case .toggleBottomPanel: .toggleBottomPanel
+        case .openBrowserTab: .openBrowserTab
         }
     }
 }

@@ -30,9 +30,9 @@ combinations from the raw press/release stream.
 | Knob rotate | Decrease/increase reasoning effort | `F17` / `F16` (bind once in Codex) |
 | Knob press | Open model picker | `⌃⇧M` |
 | Scroll wheel | Scroll conversation | Native scroll event |
-| Scroll press | Jump to latest message | `⌘↓` |
+| Scroll press | Jump to latest message | `⌘↓` (webview "end of document") |
 | Dial rotate | Previous/next assigned chat | `codex://threads/<id>` |
-| Dial press | Search all chats | `⌘G` |
+| Dial press | Search all chats | `F18` (bound by the installer) |
 | Top | New independent chat | `⌥⌘O` |
 | Tall | Approve or send | `Return` |
 | Side | Decline/cancel | `Esc` |
@@ -54,6 +54,16 @@ combinations from the raw press/release stream.
 | Tour + Right | Agent slot 4 | Codex deep link |
 | Tour + Down | Agent slot 5 | Codex deep link |
 | Tour + Left | Agent slot 6 | Codex deep link |
+
+`F18` is owned by the installer because Codex ships no default shortcut for
+chat search on the desktop app; the app binds `searchChats` to it in
+`~/.codex/keybindings.json`. "Jump to latest message" is not a Codex command,
+so the bridge sends `⌘↓`, which the conversation webview handles as "move to
+end of document".
+
+Settings → Control Mapping also offers four newer Codex shortcuts that are not
+part of the default mapping: next task needing attention (`⌥⌘A`), copy task
+link (`⌥⌘L`), toggle bottom panel (`⌘J`), and open browser tab (`⌘T`).
 
 Copy, paste, and screenshot are deliberately sent to the current frontmost
 application. Every Codex-specific shortcut activates Codex first. This keeps
