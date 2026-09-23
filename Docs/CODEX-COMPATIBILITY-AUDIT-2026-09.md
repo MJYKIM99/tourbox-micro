@@ -144,19 +144,23 @@ emergency patch is not required.
 | Push-to-talk | `Ctrl+Shift+D` | `composer.startDictation` | yes |
 | Reasoning | `F16` / `F17` | user-bound | yes |
 
-## Recommendation
+## Recommended plan (as written at audit time)
 
 The project does not need a rewrite, but it does deserve a small correctness
 release plus an optional feature release:
 
-- **0.9.1 (patch, recommended now)** - fix the two shortcut defects
-  (search-chats and jump-to-latest), and re-validate the documented
-  compatibility matrix against the September Codex desktop build.
+- **0.9.1 (patch)** - fix the two shortcut defects (search-chats and
+  jump-to-latest), and re-validate the documented compatibility matrix against
+  the September Codex desktop build.
 - **0.10.0 (optional)** - adopt `Stop.last_assistant_message` and
   `SubagentStart` / `SubagentStop` for hook-driven status, and evaluate the
   app-server protocol as a supported alternative to database scraping.
 - Keep the hook command string byte-stable: any change invalidates Codex's
   hash-based hook trust and forces users to re-approve.
+
+**Outcome:** both phases shipped together as **0.10.0**, since the fixes and
+the hook-driven status work landed in the same change set. See
+[Resolutions](#resolutions-0100) below.
 
 ## Resolutions (0.10.0)
 
