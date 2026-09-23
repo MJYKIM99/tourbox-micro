@@ -21,6 +21,8 @@ signed, ad-hoc-signed, or unnotarized application bundle to a GitHub Release.
    swift test
    swift build -c release
    git diff --check
+   ruby Scripts/check-localizations.rb
+   ruby Scripts/check-version.rb
    ```
 
 7. Open a pull request and wait for required CI checks.

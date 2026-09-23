@@ -40,6 +40,9 @@ Compatibility release for the September 2026 Codex desktop build. Verified with
 - Reinstalling integration changes `hooks.json`, so Codex will ask you to review
   and trust the updated hooks once. The hook command string itself is unchanged
   apart from the added `Interrupt` entry.
+- Added `Scripts/check-version.rb` to CI so the app version and build number
+  cannot drift out of sync across `Info.plist`, both READMEs, the changelog, and
+  the bug-report template.
 
 ### Notes
 

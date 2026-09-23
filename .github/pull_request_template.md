@@ -8,6 +8,7 @@ Describe the problem and the resulting behavior.
 - [ ] `swift test`
 - [ ] `swift build -c release`
 - [ ] `ruby Scripts/check-localizations.rb`
+- [ ] `ruby Scripts/check-version.rb`
 - [ ] Manual macOS verification where required
 - [ ] `git diff --check`
 
