@@ -23,7 +23,7 @@ private enum OnboardingStep: Int, CaseIterable, Identifiable {
     var subtitle: String {
         switch self {
         case .codex: L10n.tr("Confirm that Codex and its local task index are available.")
-        case .hooks: L10n.tr("Install authenticated hooks and the F13–F15 base shortcuts without replacing your existing configuration.")
+        case .hooks: L10n.tr("Install authenticated hooks and the F13–F15 and F18 base shortcuts without replacing your existing configuration.")
         case .accessibility: L10n.tr("Allow TourBox Micro to send the keyboard and scroll actions you choose.")
         case .preset: L10n.tr("Import the Max/MSP preset in TourBox Console, then confirm the local hardware connection.")
         case .complete: L10n.tr("Your local control path is configured. You can revisit this assistant from the menu bar at any time.")

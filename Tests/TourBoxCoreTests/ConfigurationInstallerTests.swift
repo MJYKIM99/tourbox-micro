@@ -102,15 +102,41 @@ import Testing
     try JSONSerialization.data(withJSONObject: incomplete).write(to: url)
     #expect(!ConfigurationInstaller.managedKeybindingsInstalled(at: url))
     #expect(!ConfigurationInstaller.manualReasoningKeybindingsInstalled(at: url))
+    #expect(!ConfigurationInstaller.searchKeybindingInstalled(at: url))
 
     let complete: [[String: String]] = [
         ["command": "composer.toggleFastMode", "key": "F13"],
         ["command": "composer.togglePlanMode", "key": "F14"],
         ["command": "forkThread", "key": "F15"],
+        ["command": "searchChats", "key": "F18"],
         ["command": "composer.increaseReasoningEffort", "key": "F16"],
         ["command": "composer.decreaseReasoningEffort", "key": "F17"]
     ]
     try JSONSerialization.data(withJSONObject: complete).write(to: url)
     #expect(ConfigurationInstaller.managedKeybindingsInstalled(at: url))
     #expect(ConfigurationInstaller.manualReasoningKeybindingsInstalled(at: url))
+    #expect(ConfigurationInstaller.searchKeybindingInstalled(at: url))
+}
+
+@Test func keybindingInstallOwnsChatSearchAndRejectsTheRetiredKey() throws {
+    let directory = FileManager.default.temporaryDirectory
+        .appendingPathComponent(UUID().uuidString, isDirectory: true)
+    let url = directory.appendingPathComponent("keybindings.json")
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+
+    // A user or an older build may have bound chat search to the key Codex now
+    // uses for "find next match"; installing must replace it.
+    let original: [[String: String]] = [["command": "searchChats", "key": "G"]]
+    try JSONSerialization.data(withJSONObject: original).write(to: url)
+    _ = try ConfigurationInstaller.installKeybindings(at: url)
+
+    let installed = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [[String: String]])
+    #expect(installed.contains(["command": "searchChats", "key": "F18"]))
+    #expect(!installed.contains(["command": "searchChats", "key": "G"]))
+    #expect(ConfigurationInstaller.searchKeybindingInstalled(at: url))
+
+    let mismatched: [[String: String]] = [["command": "composer.findInThread", "key": "F18"]]
+    try JSONSerialization.data(withJSONObject: mismatched).write(to: url)
+    #expect(!ConfigurationInstaller.searchKeybindingInstalled(at: url))
 }

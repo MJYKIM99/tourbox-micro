@@ -5,6 +5,7 @@ public enum CodexHookEvent: String, CaseIterable, Sendable {
     case permissionRequest = "PermissionRequest"
     case postToolUse = "PostToolUse"
     case stop = "Stop"
+    case interrupt = "Interrupt"
 }
 
 public struct HookSignal: Equatable, Sendable {
@@ -12,12 +13,21 @@ public struct HookSignal: Equatable, Sendable {
     public let cwd: String?
     public let state: AgentState
     public let detail: String?
+    /// Final assistant text carried by `Stop`, already reduced for display.
+    public let assistantMessage: String?
 
-    public init(threadID: String?, cwd: String?, state: AgentState, detail: String?) {
+    public init(
+        threadID: String?,
+        cwd: String?,
+        state: AgentState,
+        detail: String?,
+        assistantMessage: String? = nil
+    ) {
         self.threadID = threadID
         self.cwd = cwd
         self.state = state
         self.detail = detail
+        self.assistantMessage = assistantMessage
     }
 }
 
@@ -34,13 +44,28 @@ public enum HookClassifier {
             state = .needsInput
         case .stop:
             state = containsFailure(payload) ? .error : .complete
+        case .interrupt:
+            // An interrupted turn is neither running nor finished, so the light
+            // must return to idle instead of waiting for a completion event.
+            state = .idle
         }
 
         let detail = firstString(
             in: payload,
             keys: ["message", "reason", "error", "tool_name", "toolName", "notification_type"]
         )
-        return HookSignal(threadID: threadID, cwd: cwd, state: state, detail: detail)
+        let assistantMessage = event == .stop
+            ? AssistantMessageText.concise(
+                firstString(in: payload, keys: ["last_assistant_message", "lastAssistantMessage"])
+            )
+            : nil
+        return HookSignal(
+            threadID: threadID,
+            cwd: cwd,
+            state: state,
+            detail: detail,
+            assistantMessage: assistantMessage
+        )
     }
 
     private static func firstString(in payload: [String: Any], keys: [String]) -> String? {

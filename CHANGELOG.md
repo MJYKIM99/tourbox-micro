@@ -5,6 +5,50 @@ follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-09-24
+
+Compatibility release for the September 2026 Codex desktop build. Verified with
+`swift test` (66 tests) and `TourBoxMicro --doctor` against the current app.
+
+### Fixed
+
+- Chat search no longer presses `⌘G`, which Codex now uses for "Find next
+  match." The installer owns `F18` for the app's `searchChats` command and the
+  Dial press sends that key instead, so "Search all chats" works again.
+- The reasoning knob, Fast, Plan, and Fork bindings are unchanged; the installer
+  now replaces any stale `searchChats` binding rather than leaving a conflicting
+  key behind.
+
+### Added
+
+- Four tactile actions for shortcuts Codex added: next task needing attention
+  (`⌥⌘A`), copy task link (`⌥⌘L`), toggle bottom panel (`⌘J`), and open browser
+  tab (`⌘T`). All four are selectable in Settings → Control Mapping.
+- `Interrupt` lifecycle hook, so an interrupted turn returns its light to idle
+  instead of staying blue until it ages out.
+- `Stop` now carries the final assistant message. The HUD shows the real result
+  the moment a turn ends instead of waiting for the next bounded rollout scan.
+- Shared message summarizer (`AssistantMessageText`) used by both the rollout
+  reader and the hook path, so the two sources cannot disagree.
+
+### Changed
+
+- The compatibility audit is recorded in
+  [Docs/CODEX-COMPATIBILITY-AUDIT-2026-09.md](Docs/CODEX-COMPATIBILITY-AUDIT-2026-09.md).
+- Diagnostics report the installed hook count from the event list instead of a
+  hard-coded number, and the base-shortcut row now names `F18`.
+- Reinstalling integration changes `hooks.json`, so Codex will ask you to review
+  and trust the updated hooks once. The hook command string itself is unchanged
+  apart from the added `Interrupt` entry.
+- Added `Scripts/check-version.rb` to CI so the app version and build number
+  cannot drift out of sync across `Info.plist`, both READMEs, the changelog, and
+  the bug-report template.
+
+### Notes
+
+- "Jump to latest message" (`⌘↓`) is unchanged. Codex exposes no such command;
+  the conversation webview handles `⌘↓` as "move to end of document".
+
 ## [0.9.0] - 2026-08-07
 
 ### Added
@@ -133,7 +177,8 @@ follows [Semantic Versioning](https://semver.org/).
 - Swift Testing coverage for protocol, routing, configuration, persistence,
   rollout, display text, slot ordering, and transition behavior.
 
-[Unreleased]: https://github.com/MJYKIM99/tourbox-micro/compare/v0.9.0...HEAD
+[Unreleased]: https://github.com/MJYKIM99/tourbox-micro/compare/v0.10.0...HEAD
+[0.10.0]: https://github.com/MJYKIM99/tourbox-micro/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/MJYKIM99/tourbox-micro/compare/v0.8.1...v0.9.0
 [0.8.1]: https://github.com/MJYKIM99/tourbox-micro/compare/v0.8.0...v0.8.1
 [0.8.0]: https://github.com/MJYKIM99/tourbox-micro/compare/v0.7.2...v0.8.0

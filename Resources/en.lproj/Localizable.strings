@@ -138,6 +138,10 @@
 "Back" = "Back";
 "Forward" = "Forward";
 "Toggle sidebar" = "Toggle sidebar";
+"Next task needing attention" = "Next task needing attention";
+"Copy task link" = "Copy task link";
+"Toggle bottom panel" = "Toggle bottom panel";
+"Open browser tab" = "Open browser tab";
 
 "Check the complete local path from TourBox input to Codex actions." = "Check the complete local path from TourBox input to Codex actions.";
 "Refresh" = "Refresh";
@@ -164,10 +168,10 @@
 "Codex state database is missing" = "Codex state database is missing";
 "Task state persistence" = "Task state persistence";
 "Lifecycle hooks" = "Lifecycle hooks";
-"4 hooks installed" = "4 hooks installed";
+"%d hooks installed" = "%d hooks installed";
 "Not installed" = "Not installed";
 "Base shortcuts" = "Base shortcuts";
-"F13 · F14 · F15 installed" = "F13 · F14 · F15 installed";
+"F13 · F14 · F15 · F18 installed" = "F13 · F14 · F15 · F18 installed";
 "Automatic mapping is incomplete" = "Automatic mapping is incomplete";
 "Reasoning knob" = "Reasoning knob";
 "F16 increase · F17 decrease" = "F16 increase · F17 decrease";
@@ -233,7 +237,7 @@
 "Connect the TourBox preset" = "Connect the TourBox preset";
 "Setup complete" = "Setup complete";
 "Confirm that Codex and its local task index are available." = "Confirm that Codex and its local task index are available.";
-"Install authenticated hooks and the F13–F15 base shortcuts without replacing your existing configuration." = "Install authenticated hooks and the F13–F15 base shortcuts without replacing your existing configuration.";
+"Install authenticated hooks and the F13–F15 and F18 base shortcuts without replacing your existing configuration." = "Install authenticated hooks and the F13–F15 and F18 base shortcuts without replacing your existing configuration.";
 "Allow TourBox Micro to send the keyboard and scroll actions you choose." = "Allow TourBox Micro to send the keyboard and scroll actions you choose.";
 "Import the Max/MSP preset in TourBox Console, then confirm the local hardware connection." = "Import the Max/MSP preset in TourBox Console, then confirm the local hardware connection.";
 "Your local control path is configured. You can revisit this assistant from the menu bar at any time." = "Your local control path is configured. You can revisit this assistant from the menu bar at any time.";

@@ -28,8 +28,10 @@ lifecycle persistence in one small menu-bar app.
 
 > [!IMPORTANT]
 > TourBox Micro is an independent public beta. It is not affiliated with or
-> endorsed by TourBox Tech or OpenAI. Version **0.9.0 (Build 19)** is tested
-> with TourBox Elite, TourBox Console 5.2.6, and macOS 14 or later.
+> endorsed by TourBox Tech or OpenAI. Version **0.10.0 (Build 20)** is tested
+> with TourBox Elite, TourBox Console 5.2.6, macOS 14 or later, and the
+> September 2026 Codex desktop build. The compatibility audit is recorded in
+> [Docs/CODEX-COMPATIBILITY-AUDIT-2026-09.md](Docs/CODEX-COMPATIBILITY-AUDIT-2026-09.md).
 
 <p align="center">
   <img src="Docs/Images/glass-lights-hud.jpg" width="322" alt="Six independent glass status lights showing completed and running Codex tasks">
@@ -48,6 +50,7 @@ lifecycle persistence in one small menu-bar app.
 | Frontmost-app actions | Copy, paste, and screenshot stay in the app you are currently using |
 | True push-to-talk | Short press starts voice input and release stops it using real press/release events |
 | Local state recovery | SQLite persistence plus bounded rollout-tail recovery after relaunch |
+| Hook-driven status | Interrupted turns return to idle, and completed turns show their final message immediately |
 | Native settings and diagnostics | Configure mappings, HUD behavior, launch at login, permissions, and integrations |
 | Guided bilingual setup | English and Simplified Chinese UI with a first-run Codex → Hooks → Accessibility → preset assistant |
 | Energy-aware runtime | Native SQLite, bounded background reconciliation, deduplicated rendering, and no hidden-window animation |
@@ -183,6 +186,11 @@ source preset or TourBox Console's database. See
 Every press action except the fixed Short and Tour behaviors can be changed in
 **Settings → Control Mapping** without regenerating the TourBox preset.
 
+Control Mapping also exposes four newer Codex shortcuts that are not part of the
+default mapping: next task needing attention (`⌥⌘A`), copy task link (`⌥⌘L`),
+toggle bottom panel (`⌘J`), and open browser tab (`⌘T`). Chat search is bound to
+`F18` by the installer because Codex has no default shortcut for it.
+
 ## HUD and task slots
 
 Choose between two HUD styles in Settings:
@@ -297,9 +305,10 @@ signed or unnotarized application bundles. See
 distribution requirements.
 
 The test suite covers protocol decoding, modifier routing, configurable
-mappings, authenticated and bounded hook parsing, configuration merging,
-database-version discovery, persistence, rollout recovery, display-text
-cleanup, slot ordering, status transitions, and localization integrity.
+mappings, authenticated and bounded hook parsing and event classification,
+message summarization, configuration merging, database-version discovery,
+persistence, rollout recovery, display-text cleanup, slot ordering, status
+transitions, and localization integrity.
 
 ```text
 tourbox-micro/

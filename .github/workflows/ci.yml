@@ -50,3 +50,6 @@ jobs:
 
       - name: Check localization integrity
         run: ruby Scripts/check-localizations.rb
+
+      - name: Check version consistency
+        run: ruby Scripts/check-version.rb

@@ -166,47 +166,12 @@ public struct RolloutPresentationReader: Sendable {
             )
         }
         guard let assistantMessage = latestAssistantMessage,
-              let concise = conciseLastSentence(from: assistantMessage.text) else { return nil }
+              let concise = AssistantMessageText.concise(assistantMessage.text) else { return nil }
         return RolloutPresentationSnapshot(
             threadID: thread.id,
             latestMessage: concise,
             updatedAt: assistantMessage.date
         )
-    }
-
-    private func conciseLastSentence(from value: String) -> String? {
-        var text = value
-        text = text.replacingOccurrences(
-            of: #"<codex_delegation>[\s\S]*?</codex_delegation>"#,
-            with: " ",
-            options: .regularExpression
-        )
-        text = text.replacingOccurrences(of: #"!\[[^\]]*\]\([^\)]*\)"#, with: " ", options: .regularExpression)
-        text = text.replacingOccurrences(of: #"\[([^\]]+)\]\([^\)]*\)"#, with: "$1", options: .regularExpression)
-        text = text.replacingOccurrences(of: #"[`*_>#]"#, with: "", options: .regularExpression)
-
-        let lines = text.components(separatedBy: .newlines)
-            .map { line in
-                line.replacingOccurrences(
-                    of: #"^\s*(?:[-+•]|\d+[.)])\s*"#,
-                    with: "",
-                    options: .regularExpression
-                ).trimmingCharacters(in: .whitespacesAndNewlines)
-            }
-            .filter { !$0.isEmpty }
-        guard var candidate = lines.last else { return nil }
-
-        let endings = CharacterSet(charactersIn: "。！？!?")
-        let sentences = candidate.components(separatedBy: endings)
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-        if let last = sentences.last { candidate = last }
-        candidate = candidate.replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
-        guard !candidate.isEmpty else { return nil }
-        if candidate.count > 180 {
-            return String(candidate.prefix(179)).trimmingCharacters(in: .whitespacesAndNewlines) + "…"
-        }
-        return candidate
     }
 
     private func tailData(from url: URL) throws -> Data {

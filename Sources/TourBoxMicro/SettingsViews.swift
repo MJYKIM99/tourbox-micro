@@ -1057,13 +1057,17 @@ private extension ButtonAction {
         case .screenshot: L10n.tr("Screenshot")
         case .previousRecentChat: L10n.tr("Previous recent chat")
         case .nextRecentChat: L10n.tr("Next recent chat")
+        case .nextNeedingAttention: L10n.tr("Next task needing attention")
         case .searchChats: L10n.tr("Search all chats")
         case .jumpToLatest: L10n.tr("Jump to latest message")
+        case .copyDeepLink: L10n.tr("Copy task link")
         case .previousChat: L10n.tr("Previous task")
         case .nextChat: L10n.tr("Next task")
         case .navigateBack: L10n.tr("Back")
         case .navigateForward: L10n.tr("Forward")
         case .toggleSidebar: L10n.tr("Toggle sidebar")
+        case .toggleBottomPanel: L10n.tr("Toggle bottom panel")
+        case .openBrowserTab: L10n.tr("Open browser tab")
         }
     }
 
@@ -1087,13 +1091,17 @@ private extension ButtonAction {
         case .screenshot: "camera"
         case .previousRecentChat: "arrow.left.to.line"
         case .nextRecentChat: "arrow.right.to.line"
+        case .nextNeedingAttention: "exclamationmark.bubble"
         case .searchChats: "magnifyingglass"
         case .jumpToLatest: "arrow.down.to.line"
+        case .copyDeepLink: "link"
         case .previousChat: "chevron.left"
         case .nextChat: "chevron.right"
         case .navigateBack: "arrow.backward"
         case .navigateForward: "arrow.forward"
         case .toggleSidebar: "sidebar.left"
+        case .toggleBottomPanel: "rectangle.split.1x2"
+        case .openBrowserTab: "globe"
         }
     }
 }

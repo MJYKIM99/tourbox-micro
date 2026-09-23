@@ -67,20 +67,32 @@ final class CodexController {
             shortcut(keyCode: 48, flags: [.maskControl, .maskShift])
         case .nextRecentChat:
             shortcut(keyCode: 48, flags: [.maskControl])
+        case .nextNeedingAttention:
+            shortcut(keyCode: 0, flags: [.maskAlternate, .maskCommand])
         case .adjustReasoning(let delta):
             reasoningShortcut(delta: delta)
         case .searchChats:
-            shortcut(keyCode: 5, flags: [.maskCommand])
+            // Codex ships no default chat-search shortcut on the desktop app, so
+            // ConfigurationInstaller owns F18 for the `searchChats` command.
+            shortcut(keyCode: 79)
         case .scroll(let delta):
             scroll(lines: delta * 3)
         case .jumpToLatest:
+            // Codex exposes no "jump to latest" command; the conversation
+            // webview treats Command-Down as "move to end of document".
             shortcut(keyCode: 125, flags: [.maskCommand])
+        case .copyDeepLink:
+            shortcut(keyCode: 37, flags: [.maskAlternate, .maskCommand])
         case .navigateBack:
             shortcut(keyCode: 33, flags: [.maskCommand])
         case .navigateForward:
             shortcut(keyCode: 30, flags: [.maskCommand])
         case .toggleSidebar:
             shortcut(keyCode: 11, flags: [.maskCommand])
+        case .toggleBottomPanel:
+            shortcut(keyCode: 38, flags: [.maskCommand])
+        case .openBrowserTab:
+            shortcut(keyCode: 17, flags: [.maskCommand])
         case .previousChat, .nextChat, .openSlot, .toggleHUD:
             break
         }

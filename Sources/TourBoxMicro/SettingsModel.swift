@@ -283,14 +283,16 @@ final class SettingsModel: ObservableObject {
             .init(
                 id: "hooks",
                 title: L10n.tr("Lifecycle hooks"),
-                detail: systemDiagnostics.hooksInstalled ? L10n.tr("4 hooks installed") : L10n.tr("Not installed"),
+                detail: systemDiagnostics.hooksInstalled
+                    ? L10n.format("%d hooks installed", CodexHookEvent.allCases.count)
+                    : L10n.tr("Not installed"),
                 symbol: "point.3.connected.trianglepath.dotted",
                 state: systemDiagnostics.hooksInstalled ? .ready : .actionRequired
             ),
             .init(
                 id: "keys",
                 title: L10n.tr("Base shortcuts"),
-                detail: systemDiagnostics.keysInstalled ? L10n.tr("F13 · F14 · F15 installed") : L10n.tr("Automatic mapping is incomplete"),
+                detail: systemDiagnostics.keysInstalled ? L10n.tr("F13 · F14 · F15 · F18 installed") : L10n.tr("Automatic mapping is incomplete"),
                 symbol: "keyboard",
                 state: systemDiagnostics.keysInstalled ? .ready : .actionRequired
             ),

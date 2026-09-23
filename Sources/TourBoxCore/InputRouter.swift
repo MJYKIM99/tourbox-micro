@@ -19,15 +19,19 @@ public enum MicroAction: Equatable, Sendable {
     case screenshot
     case previousRecentChat
     case nextRecentChat
+    case nextNeedingAttention
     case adjustReasoning(Int)
     case previousChat
     case nextChat
     case searchChats
     case scroll(Int)
     case jumpToLatest
+    case copyDeepLink
     case navigateBack
     case navigateForward
     case toggleSidebar
+    case toggleBottomPanel
+    case openBrowserTab
     case openSlot(Int)
     case toggleHUD
 }

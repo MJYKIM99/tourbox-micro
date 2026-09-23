@@ -138,6 +138,10 @@
 "Back" = "返回";
 "Forward" = "前进";
 "Toggle sidebar" = "切换侧边栏";
+"Next task needing attention" = "下一个需要关注的聊天";
+"Copy task link" = "复制任务链接";
+"Toggle bottom panel" = "切换底部面板";
+"Open browser tab" = "打开浏览器标签页";
 
 "Check the complete local path from TourBox input to Codex actions." = "检查从 TourBox 输入到 Codex 动作的完整本地链路。";
 "Refresh" = "刷新";
@@ -164,10 +168,10 @@
 "Codex state database is missing" = "Codex 状态数据库缺失";
 "Task state persistence" = "任务状态持久化";
 "Lifecycle hooks" = "生命周期 Hooks";
-"4 hooks installed" = "已安装 4 个 Hook";
+"%d hooks installed" = "已安装 %d 个 Hook";
 "Not installed" = "尚未安装";
 "Base shortcuts" = "基础快捷键";
-"F13 · F14 · F15 installed" = "已安装 F13 · F14 · F15";
+"F13 · F14 · F15 · F18 installed" = "已安装 F13 · F14 · F15 · F18";
 "Automatic mapping is incomplete" = "自动映射不完整";
 "Reasoning knob" = "推理旋钮";
 "F16 increase · F17 decrease" = "F16 增加 · F17 降低";
@@ -233,7 +237,7 @@
 "Connect the TourBox preset" = "连接 TourBox 预设";
 "Setup complete" = "设置完成";
 "Confirm that Codex and its local task index are available." = "确认 Codex 及其本地任务索引可用。";
-"Install authenticated hooks and the F13–F15 base shortcuts without replacing your existing configuration." = "安装经过认证的 Hooks 和 F13–F15 基础快捷键，同时保留现有配置。";
+"Install authenticated hooks and the F13–F15 and F18 base shortcuts without replacing your existing configuration." = "安装经过认证的 Hooks 和 F13–F15 与 F18 基础快捷键，同时保留现有配置。";
 "Allow TourBox Micro to send the keyboard and scroll actions you choose." = "允许 TourBox Micro 发送你选择的键盘和滚动操作。";
 "Import the Max/MSP preset in TourBox Console, then confirm the local hardware connection." = "在 TourBox Console 中导入 Max/MSP 预设，然后确认本地硬件连接。";
 "Your local control path is configured. You can revisit this assistant from the menu bar at any time." = "本地控制链路已配置完成。你可以随时从菜单栏重新打开此向导。";

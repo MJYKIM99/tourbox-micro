@@ -222,6 +222,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             !recentThreads.contains { $0.id == threadID }
         } ?? false
         statusStore.apply(signal)
+        applyHookAssistantMessage(signal)
         resolveSlots()
         if shouldDiscoverUnknownThread {
             let now = Date()
@@ -232,6 +233,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 refreshThreads()
             }
         }
+    }
+
+    /// `Stop` carries the final assistant text, so the HUD can show the real
+    /// result as soon as the turn ends instead of waiting for the next bounded
+    /// rollout scan. The cache is trimmed to the visible thread window whenever
+    /// the Codex database is refreshed.
+    private func applyHookAssistantMessage(_ signal: HookSignal) {
+        guard let threadID = signal.threadID, let message = signal.assistantMessage else { return }
+        _ = rolloutPresentationCache.apply([
+            RolloutPresentationSnapshot(
+                threadID: threadID,
+                latestMessage: message,
+                updatedAt: Date()
+            )
+        ])
     }
 
     private func refreshThreads() {
