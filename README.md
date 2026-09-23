@@ -50,6 +50,7 @@ lifecycle persistence in one small menu-bar app.
 | Frontmost-app actions | Copy, paste, and screenshot stay in the app you are currently using |
 | True push-to-talk | Short press starts voice input and release stops it using real press/release events |
 | Local state recovery | SQLite persistence plus bounded rollout-tail recovery after relaunch |
+| Hook-driven status | Interrupted turns return to idle, and completed turns show their final message immediately |
 | Native settings and diagnostics | Configure mappings, HUD behavior, launch at login, permissions, and integrations |
 | Guided bilingual setup | English and Simplified Chinese UI with a first-run Codex → Hooks → Accessibility → preset assistant |
 | Energy-aware runtime | Native SQLite, bounded background reconciliation, deduplicated rendering, and no hidden-window animation |
@@ -304,9 +305,10 @@ signed or unnotarized application bundles. See
 distribution requirements.
 
 The test suite covers protocol decoding, modifier routing, configurable
-mappings, authenticated and bounded hook parsing, configuration merging,
-database-version discovery, persistence, rollout recovery, display-text
-cleanup, slot ordering, status transitions, and localization integrity.
+mappings, authenticated and bounded hook parsing and event classification,
+message summarization, configuration merging, database-version discovery,
+persistence, rollout recovery, display-text cleanup, slot ordering, status
+transitions, and localization integrity.
 
 ```text
 tourbox-micro/

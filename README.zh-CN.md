@@ -49,6 +49,7 @@ TourBox Micro 是一个原生 macOS 桥接应用，把 TourBox Console 的 Max/M
 | 前台应用操作 | 复制、粘贴和截图留在当前使用的 App，不强制切换到 Codex |
 | 真正的按住说话 | Short 按下开始、松开停止，保留真实 press/release 语义 |
 | 本地状态恢复 | SQLite 持久化，并在重启后从 rollout 文件的有限尾部恢复状态 |
+| Hook 驱动状态 | 被打断的任务立即回到空闲，完成的任务立即显示最终消息 |
 | 原生设置与诊断 | 配置按键、HUD、登录启动、权限和 Codex 集成 |
 | 双语引导设置 | 英文与简体中文 UI，以及 Codex → Hooks → 辅助功能 → 预设首次启动向导 |
 | 能耗友好的运行时 | 原生 SQLite、有限后台对账、去重渲染，并在窗口隐藏时停止 UI 工作 |
@@ -281,9 +282,9 @@ open "/Applications/TourBox Micro.app" --args --onboarding
 当前 Release 只发布源码，不分发开发签名或未经 Apple 公证的应用包。发布清单与
 二进制分发要求见 [Docs/RELEASING.md](Docs/RELEASING.md)。
 
-测试覆盖协议解码、修饰层路由、可配置映射、带认证且有边界的 Hook 解析、
-配置合并、数据库版本发现、状态持久化、rollout 恢复、显示文本清理、槽位排序、
-状态变化反馈和本地化完整性。
+测试覆盖协议解码、修饰层路由、可配置映射、带认证且有边界的 Hook 解析与事件分类、
+消息精简、配置合并、数据库版本发现、状态持久化、rollout 恢复、显示文本清理、
+槽位排序、状态变化反馈和本地化完整性。
 
 ```text
 tourbox-micro/
