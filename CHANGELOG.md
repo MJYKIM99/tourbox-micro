@@ -5,6 +5,58 @@ follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-11-09
+
+Compatibility and feature release for the November 2026 Codex desktop build
+(`26.1103.60933`, `codex-cli 0.164.0`). Verified with `swift test` and
+`TourBoxMicro --doctor` against the installed app.
+
+### Fixed
+
+- **Recent chat cycling (`Right` / `Left`)**: Codex 26.1103 added top-level tabs
+  and reassigned `⌃Tab` / `⌃⇧Tab` (`⇧⌘]` / `⇧⌘[`) to `nextTab` / `previousTab`,
+  leaving `nextRecentThread` / `previousRecentThread` without default
+  keybindings. The installer now binds `nextRecentThread` to `F19` and
+  `previousRecentThread` to `F20`, and D-pad Right / Left send `F19` / `F20` so
+  recent chat cycling works again instead of switching tabs.
+- **Push-to-talk voice dictation (`Short` hold)**: Codex retired
+  `composer.startDictation` and moved desktop hold-to-dictate to the OS-global
+  `globalDictationHold` command (`bare-modifier-monitor`). The installer now
+  binds `globalDictationHold` to `Ctrl+Shift+D` and strips any retired
+  `composer.startDictation` entry, restoring press-and-hold dictation on the
+  Short button.
+- **Quick Chat (`Tour + Knob press`)**: Codex removed `focusQuickChat` (`⌥⌘N`)
+  and migrated it to `openAvatarOverlay` ("Show Mini", `⌥Space`). Quick Chat now
+  sends `⌥Space` without forcing all main Codex windows to the front first.
+
+### Added
+
+- Fifteen selectable actions in Settings → Control Mapping for shortcuts
+  introduced or updated in recent Codex desktop builds:
+  - Previous / next sidebar item (`⌥⌘[` / `⌥⌘]`)
+  - Previous / next tab (`⇧⌘[` / `⇧⌘]`)
+  - Toggle terminal (``⌃` ``)
+  - Step workspace layout (`⇧⌘B`)
+  - Show full view (`⇧⌘F`)
+  - Open side chat (`⌥⌘S`)
+  - Archive current chat (`⇧⌘A`)
+  - Pin / unpin current chat (`⌥⌘P`)
+  - Copy working directory (`⇧⌘C`)
+  - Copy last code block (`⇧⌘;`)
+  - Toggle voice mode (`⌃⇧V`)
+  - Spotlight search (`⌥K`)
+  - Screenshot to current chat (`⌃⇧4`)
+- Diagnostic helpers `recentChatKeybindingsInstalled(at:)` (`F19`/`F20`) and
+  `dictationKeybindingInstalled(at:)` (`Ctrl+Shift+D`) in
+  `ConfigurationInstaller` and `TourBoxMicro --doctor`.
+
+### Changed
+
+- Recorded the November 2026 compatibility audit in
+  [Docs/CODEX-COMPATIBILITY-AUDIT-2026-11.md](Docs/CODEX-COMPATIBILITY-AUDIT-2026-11.md).
+- Updated English and Simplified Chinese localizations (266 catalog keys) and
+  base-shortcut diagnostics (`F13–F15 · F18–F20 · ⌃⇧D`).
+
 ## [0.10.0] - 2026-09-24
 
 Compatibility release for the September 2026 Codex desktop build. Verified with
@@ -177,7 +229,8 @@ Compatibility release for the September 2026 Codex desktop build. Verified with
 - Swift Testing coverage for protocol, routing, configuration, persistence,
   rollout, display text, slot ordering, and transition behavior.
 
-[Unreleased]: https://github.com/MJYKIM99/tourbox-micro/compare/v0.10.0...HEAD
+[Unreleased]: https://github.com/MJYKIM99/tourbox-micro/compare/v0.11.0...HEAD
+[0.11.0]: https://github.com/MJYKIM99/tourbox-micro/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/MJYKIM99/tourbox-micro/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/MJYKIM99/tourbox-micro/compare/v0.8.1...v0.9.0
 [0.8.1]: https://github.com/MJYKIM99/tourbox-micro/compare/v0.8.0...v0.8.1

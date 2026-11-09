@@ -32,6 +32,21 @@ public enum MicroAction: Equatable, Sendable {
     case toggleSidebar
     case toggleBottomPanel
     case openBrowserTab
+    case previousSidebarItem
+    case nextSidebarItem
+    case previousTab
+    case nextTab
+    case toggleTerminal
+    case stepWorkspaceLayout
+    case showFullView
+    case openSideChat
+    case archiveChat
+    case togglePinChat
+    case copyWorkingDirectory
+    case copyLastCodeBlock
+    case toggleVoiceMode
+    case spotlightSearch
+    case screenshotToCurrentChat
     case openSlot(Int)
     case toggleHUD
 }

@@ -292,7 +292,7 @@ final class SettingsModel: ObservableObject {
             .init(
                 id: "keys",
                 title: L10n.tr("Base shortcuts"),
-                detail: systemDiagnostics.keysInstalled ? L10n.tr("F13 · F14 · F15 · F18 installed") : L10n.tr("Automatic mapping is incomplete"),
+                detail: systemDiagnostics.keysInstalled ? L10n.tr("F13–F15 · F18–F20 · ⌃⇧D installed") : L10n.tr("Automatic mapping is incomplete"),
                 symbol: "keyboard",
                 state: systemDiagnostics.keysInstalled ? .ready : .actionRequired
             ),

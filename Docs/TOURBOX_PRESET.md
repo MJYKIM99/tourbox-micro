@@ -36,15 +36,15 @@ combinations from the raw press/release stream.
 | Top | New independent chat | `⌥⌘O` |
 | Tall | Approve or send | `Return` |
 | Side | Decline/cancel | `Esc` |
-| Short (hold) | Push-to-talk; release stops dictation | Press/release PTT shortcut |
+| Short (hold) | Push-to-talk; release stops dictation | `⌃⇧D` (`globalDictationHold`, bound by the installer) |
 | C1 | Copy in the frontmost app | `⌘C` |
 | C2 | Paste in the frontmost app | `⌘V` |
 | D-pad Up | Trigger screenshot utility | `⇧⌘2` |
-| D-pad Right | Next recently viewed chat | `⌃Tab` |
+| D-pad Right | Next recently viewed chat | `F19` (`nextRecentThread`, bound by the installer) |
 | D-pad Down | Toggle review panel | `⌥⌘B` |
-| D-pad Left | Previous recently viewed chat | `⌃⇧Tab` |
+| D-pad Left | Previous recently viewed chat | `F20` (`previousRecentThread`, bound by the installer) |
 | Tour tap | Show/hide six-agent HUD | Internal action |
-| Tour + Knob press | Quick chat | `⌥⌘N` |
+| Tour + Knob press | Quick chat (Show Mini) | `⌥Space` |
 | Tour + Scroll press | Find in current chat | `⌘F` |
 | Tour + Dial press | Open command menu | `⌘K` |
 | Tour + Top | Search project files | `⌘P` |
@@ -55,15 +55,23 @@ combinations from the raw press/release stream.
 | Tour + Down | Agent slot 5 | Codex deep link |
 | Tour + Left | Agent slot 6 | Codex deep link |
 
-`F18` is owned by the installer because Codex ships no default shortcut for
-chat search on the desktop app; the app binds `searchChats` to it in
+`F13`–`F15`, `F18`, `F19`, `F20`, and `⌃⇧D` are owned by the installer because
+Codex ships no default desktop shortcuts for Fast mode (`composer.toggleFastMode`),
+Plan mode (`composer.togglePlanMode`), Fork (`forkThread`), chat search
+(`searchChats`), recent chat cycling (`nextRecentThread` / `previousRecentThread`),
+or hold-to-dictate (`globalDictationHold`); the app binds them in
 `~/.codex/keybindings.json`. "Jump to latest message" is not a Codex command,
 so the bridge sends `⌘↓`, which the conversation webview handles as "move to
 end of document".
 
-Settings → Control Mapping also offers four newer Codex shortcuts that are not
-part of the default mapping: next task needing attention (`⌥⌘A`), copy task
-link (`⌥⌘L`), toggle bottom panel (`⌘J`), and open browser tab (`⌘T`).
+Settings → Control Mapping also offers additional Codex shortcuts beyond the
+default mapping: next task needing attention (`⌥⌘A`), copy task link (`⌥⌘L`),
+toggle bottom panel (`⌘J`), open browser tab (`⌘T`), previous/next sidebar item
+(`⌥⌘[` / `⌥⌘]`), previous/next tab (`⇧⌘[` / `⇧⌘]`), toggle terminal (``⌃` ``),
+step workspace layout (`⇧⌘B`), show full view (`⇧⌘F`), open side chat (`⌥⌘S`),
+archive current chat (`⇧⌘A`), pin/unpin current chat (`⌥⌘P`), copy working
+directory (`⇧⌘C`), copy last code block (`⇧⌘;`), toggle voice mode (`⌃⇧V`),
+Spotlight search (`⌥K`), and screenshot to current chat (`⌃⇧4`).
 
 Copy, paste, and screenshot are deliberately sent to the current frontmost
 application. Every Codex-specific shortcut activates Codex first. This keeps

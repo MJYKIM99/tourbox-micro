@@ -1068,6 +1068,21 @@ private extension ButtonAction {
         case .toggleSidebar: L10n.tr("Toggle sidebar")
         case .toggleBottomPanel: L10n.tr("Toggle bottom panel")
         case .openBrowserTab: L10n.tr("Open browser tab")
+        case .previousSidebarItem: L10n.tr("Previous sidebar item")
+        case .nextSidebarItem: L10n.tr("Next sidebar item")
+        case .previousTab: L10n.tr("Previous tab")
+        case .nextTab: L10n.tr("Next tab")
+        case .toggleTerminal: L10n.tr("Toggle terminal")
+        case .stepWorkspaceLayout: L10n.tr("Step workspace layout")
+        case .showFullView: L10n.tr("Show full view")
+        case .openSideChat: L10n.tr("Open side chat")
+        case .archiveChat: L10n.tr("Archive current chat")
+        case .togglePinChat: L10n.tr("Pin / Unpin current chat")
+        case .copyWorkingDirectory: L10n.tr("Copy working directory")
+        case .copyLastCodeBlock: L10n.tr("Copy last code block")
+        case .toggleVoiceMode: L10n.tr("Toggle voice mode")
+        case .spotlightSearch: L10n.tr("Spotlight search")
+        case .screenshotToCurrentChat: L10n.tr("Screenshot to current chat")
         }
     }
 
@@ -1102,6 +1117,21 @@ private extension ButtonAction {
         case .toggleSidebar: "sidebar.left"
         case .toggleBottomPanel: "rectangle.split.1x2"
         case .openBrowserTab: "globe"
+        case .previousSidebarItem: "arrow.up.to.line"
+        case .nextSidebarItem: "arrow.down.to.line.compact"
+        case .previousTab: "arrow.left.square"
+        case .nextTab: "arrow.right.square"
+        case .toggleTerminal: "terminal"
+        case .stepWorkspaceLayout: "rectangle.3.group"
+        case .showFullView: "arrow.up.left.and.arrow.down.right"
+        case .openSideChat: "bubble.right"
+        case .archiveChat: "archivebox"
+        case .togglePinChat: "pin"
+        case .copyWorkingDirectory: "folder"
+        case .copyLastCodeBlock: "curlybraces"
+        case .toggleVoiceMode: "waveform"
+        case .spotlightSearch: "sparkle.magnifyingglass"
+        case .screenshotToCurrentChat: "camera.viewfinder"
         }
     }
 }

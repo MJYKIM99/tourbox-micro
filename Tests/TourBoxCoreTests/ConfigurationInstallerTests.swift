@@ -61,6 +61,10 @@ import Testing
     #expect(installed.contains(["command": "composer.toggleFastMode", "key": "F13"]))
     #expect(installed.contains(["command": "composer.togglePlanMode", "key": "F14"]))
     #expect(installed.contains(["command": "forkThread", "key": "F15"]))
+    #expect(installed.contains(["command": "searchChats", "key": "F18"]))
+    #expect(installed.contains(["command": "nextRecentThread", "key": "F19"]))
+    #expect(installed.contains(["command": "previousRecentThread", "key": "F20"]))
+    #expect(installed.contains(["command": "globalDictationHold", "key": "Ctrl+Shift+D"]))
     #expect(!installed.contains(where: { $0["key"] == "F16" || $0["key"] == "F17" }))
 }
 
@@ -103,12 +107,17 @@ import Testing
     #expect(!ConfigurationInstaller.managedKeybindingsInstalled(at: url))
     #expect(!ConfigurationInstaller.manualReasoningKeybindingsInstalled(at: url))
     #expect(!ConfigurationInstaller.searchKeybindingInstalled(at: url))
+    #expect(!ConfigurationInstaller.recentChatKeybindingsInstalled(at: url))
+    #expect(!ConfigurationInstaller.dictationKeybindingInstalled(at: url))
 
     let complete: [[String: String]] = [
         ["command": "composer.toggleFastMode", "key": "F13"],
         ["command": "composer.togglePlanMode", "key": "F14"],
         ["command": "forkThread", "key": "F15"],
         ["command": "searchChats", "key": "F18"],
+        ["command": "nextRecentThread", "key": "F19"],
+        ["command": "previousRecentThread", "key": "F20"],
+        ["command": "globalDictationHold", "key": "Ctrl+Shift+D"],
         ["command": "composer.increaseReasoningEffort", "key": "F16"],
         ["command": "composer.decreaseReasoningEffort", "key": "F17"]
     ]
@@ -116,6 +125,8 @@ import Testing
     #expect(ConfigurationInstaller.managedKeybindingsInstalled(at: url))
     #expect(ConfigurationInstaller.manualReasoningKeybindingsInstalled(at: url))
     #expect(ConfigurationInstaller.searchKeybindingInstalled(at: url))
+    #expect(ConfigurationInstaller.recentChatKeybindingsInstalled(at: url))
+    #expect(ConfigurationInstaller.dictationKeybindingInstalled(at: url))
 }
 
 @Test func keybindingInstallOwnsChatSearchAndRejectsTheRetiredKey() throws {
@@ -139,4 +150,30 @@ import Testing
     let mismatched: [[String: String]] = [["command": "composer.findInThread", "key": "F18"]]
     try JSONSerialization.data(withJSONObject: mismatched).write(to: url)
     #expect(!ConfigurationInstaller.searchKeybindingInstalled(at: url))
+}
+
+@Test func keybindingInstallReplacesRetiredDictationAndRecentChatBindings() throws {
+    let directory = FileManager.default.temporaryDirectory
+        .appendingPathComponent(UUID().uuidString, isDirectory: true)
+    let url = directory.appendingPathComponent("keybindings.json")
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+
+    let legacy: [[String: String]] = [
+        ["command": "composer.startDictation", "key": "Ctrl+Shift+D"],
+        ["command": "nextRecentThread", "key": "Ctrl+Tab"],
+        ["command": "previousRecentThread", "key": "Ctrl+Shift+Tab"]
+    ]
+    try JSONSerialization.data(withJSONObject: legacy).write(to: url)
+    _ = try ConfigurationInstaller.installKeybindings(at: url)
+
+    let installed = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [[String: String]])
+    #expect(!installed.contains(where: { $0["command"] == "composer.startDictation" }))
+    #expect(installed.contains(["command": "globalDictationHold", "key": "Ctrl+Shift+D"]))
+    #expect(installed.contains(["command": "nextRecentThread", "key": "F19"]))
+    #expect(installed.contains(["command": "previousRecentThread", "key": "F20"]))
+    #expect(!installed.contains(["command": "nextRecentThread", "key": "Ctrl+Tab"]))
+    #expect(!installed.contains(["command": "previousRecentThread", "key": "Ctrl+Shift+Tab"]))
+    #expect(ConfigurationInstaller.recentChatKeybindingsInstalled(at: url))
+    #expect(ConfigurationInstaller.dictationKeybindingInstalled(at: url))
 }

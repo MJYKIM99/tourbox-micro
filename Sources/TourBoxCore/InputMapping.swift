@@ -30,6 +30,21 @@ public enum ButtonAction: String, Codable, CaseIterable, Hashable, Sendable {
     case toggleSidebar
     case toggleBottomPanel
     case openBrowserTab
+    case previousSidebarItem
+    case nextSidebarItem
+    case previousTab
+    case nextTab
+    case toggleTerminal
+    case stepWorkspaceLayout
+    case showFullView
+    case openSideChat
+    case archiveChat
+    case togglePinChat
+    case copyWorkingDirectory
+    case copyLastCodeBlock
+    case toggleVoiceMode
+    case spotlightSearch
+    case screenshotToCurrentChat
 
     public var microAction: MicroAction? {
         switch self {
@@ -62,6 +77,21 @@ public enum ButtonAction: String, Codable, CaseIterable, Hashable, Sendable {
         case .toggleSidebar: .toggleSidebar
         case .toggleBottomPanel: .toggleBottomPanel
         case .openBrowserTab: .openBrowserTab
+        case .previousSidebarItem: .previousSidebarItem
+        case .nextSidebarItem: .nextSidebarItem
+        case .previousTab: .previousTab
+        case .nextTab: .nextTab
+        case .toggleTerminal: .toggleTerminal
+        case .stepWorkspaceLayout: .stepWorkspaceLayout
+        case .showFullView: .showFullView
+        case .openSideChat: .openSideChat
+        case .archiveChat: .archiveChat
+        case .togglePinChat: .togglePinChat
+        case .copyWorkingDirectory: .copyWorkingDirectory
+        case .copyLastCodeBlock: .copyLastCodeBlock
+        case .toggleVoiceMode: .toggleVoiceMode
+        case .spotlightSearch: .spotlightSearch
+        case .screenshotToCurrentChat: .screenshotToCurrentChat
         }
     }
 }
