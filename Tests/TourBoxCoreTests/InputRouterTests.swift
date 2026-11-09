@@ -66,3 +66,30 @@ import Testing
     #expect(router.route(.init(control: .short, phase: .pressed)) == [.voice(pressed: true)])
     #expect(router.route(.init(control: .short, phase: .released)) == [.voice(pressed: false)])
 }
+
+@Test func routesAllSelectableNov2026CodexActions() {
+    let cases: [(ButtonAction, MicroAction)] = [
+        (.previousSidebarItem, .previousSidebarItem),
+        (.nextSidebarItem, .nextSidebarItem),
+        (.previousTab, .previousTab),
+        (.nextTab, .nextTab),
+        (.toggleTerminal, .toggleTerminal),
+        (.stepWorkspaceLayout, .stepWorkspaceLayout),
+        (.showFullView, .showFullView),
+        (.openSideChat, .openSideChat),
+        (.archiveChat, .archiveChat),
+        (.togglePinChat, .togglePinChat),
+        (.copyWorkingDirectory, .copyWorkingDirectory),
+        (.copyLastCodeBlock, .copyLastCodeBlock),
+        (.toggleVoiceMode, .toggleVoiceMode),
+        (.spotlightSearch, .spotlightSearch),
+        (.screenshotToCurrentChat, .screenshotToCurrentChat)
+    ]
+
+    for (buttonAction, expectedMicroAction) in cases {
+        var mapping = InputMappingConfiguration.default
+        mapping.set(buttonAction, for: .c1)
+        var router = InputRouter(configuration: mapping)
+        #expect(router.route(.init(control: .c1, phase: .pressed)) == [expectedMicroAction])
+    }
+}

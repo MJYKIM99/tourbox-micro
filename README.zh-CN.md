@@ -27,10 +27,11 @@ TourBox Micro 是一个原生 macOS 桥接应用，把 TourBox Console 的 Max/M
 
 > [!IMPORTANT]
 > TourBox Micro 是独立开发的公开测试版，与 TourBox Tech 或 OpenAI 没有关联，
-> 也未获得其官方背书。版本 **0.10.0（Build 20）** 已在 TourBox Elite、
-> TourBox Console 5.2.6、macOS 14 或更高版本，以及 2026 年 9 月的 Codex
-> 桌面版上测试。兼容性调研记录见
-> [Docs/CODEX-COMPATIBILITY-AUDIT-2026-09.md](Docs/CODEX-COMPATIBILITY-AUDIT-2026-09.md)。
+> 也未获得其官方背书。版本 **0.11.0（Build 21）** 已在 TourBox Elite、
+> TourBox Console 5.2.6、macOS 14 或更高版本，以及 2026 年 11 月的 Codex
+> 桌面版（`26.1103.60933`）上测试。兼容性调研记录见
+> [Docs/CODEX-COMPATIBILITY-AUDIT-2026-11.md](Docs/CODEX-COMPATIBILITY-AUDIT-2026-11.md)
+> 与 [Docs/CODEX-COMPATIBILITY-AUDIT-2026-09.md](Docs/CODEX-COMPATIBILITY-AUDIT-2026-09.md)。
 
 <p align="center">
   <img src="Docs/Images/glass-lights-hud.jpg" width="322" alt="六个独立玻璃状态灯，显示已完成和运行中的 Codex 任务">
@@ -178,9 +179,16 @@ python3 Scripts/generate-tourbox-preset.py \
 除 Short 和 Tour 的固定行为外，所有按下动作都可以在
 **设置 → 控制映射** 中修改，不需要重新生成 TourBox 预设。
 
-控制映射还额外提供四个较新的 Codex 快捷键（不属于默认映射）：下一个需要关注的
+控制映射还额外提供一系列新版 Codex 快捷键（不属于默认映射）：下一个需要关注的
 聊天（`⌥⌘A`）、复制任务链接（`⌥⌘L`）、切换底部面板（`⌘J`）、打开浏览器标签页
-（`⌘T`）。聊天搜索由安装器绑定到 `F18`，因为 Codex 桌面版没有为它提供默认快捷键。
+（`⌘T`）、上一个 / 下一个侧边栏项（`⌥⌘[` / `⌥⌘]`）、上一个 / 下一个标签页
+（`⇧⌘[` / `⇧⌘]`）、切换终端（``⌃` ``）、切换工作区布局（`⇧⌘B`）、显示完整视图
+（`⇧⌘F`）、打开侧边聊天（`⌥⌘S`）、归档当前聊天（`⇧⌘A`）、置顶 / 取消置顶当前聊天
+（`⌥⌘P`）、复制工作目录（`⇧⌘C`）、复制最后一个代码块（`⇧⌘;`）、切换语音模式
+（`⌃⇧V`）、Spotlight 搜索（`⌥K`）以及截图到当前聊天（`⌃⇧4`）。安装器会自动在
+`~/.codex/keybindings.json` 中管理 `F13`–`F15`（Fast、Plan、分叉）、`F18`
+（`searchChats`）、`F19` / `F20`（`nextRecentThread` / `previousRecentThread`）
+和 `⌃⇧D`（`globalDictationHold` 按住说话），因为 Codex 桌面版未给这些命令提供默认快捷键。
 
 ## HUD 与任务槽位
 

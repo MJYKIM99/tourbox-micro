@@ -28,10 +28,12 @@ lifecycle persistence in one small menu-bar app.
 
 > [!IMPORTANT]
 > TourBox Micro is an independent public beta. It is not affiliated with or
-> endorsed by TourBox Tech or OpenAI. Version **0.10.0 (Build 20)** is tested
+> endorsed by TourBox Tech or OpenAI. Version **0.11.0 (Build 21)** is tested
 > with TourBox Elite, TourBox Console 5.2.6, macOS 14 or later, and the
-> September 2026 Codex desktop build. The compatibility audit is recorded in
-> [Docs/CODEX-COMPATIBILITY-AUDIT-2026-09.md](Docs/CODEX-COMPATIBILITY-AUDIT-2026-09.md).
+> November 2026 Codex desktop build (`26.1103.60933`). The compatibility audits
+> are recorded in
+> [Docs/CODEX-COMPATIBILITY-AUDIT-2026-11.md](Docs/CODEX-COMPATIBILITY-AUDIT-2026-11.md)
+> and [Docs/CODEX-COMPATIBILITY-AUDIT-2026-09.md](Docs/CODEX-COMPATIBILITY-AUDIT-2026-09.md).
 
 <p align="center">
   <img src="Docs/Images/glass-lights-hud.jpg" width="322" alt="Six independent glass status lights showing completed and running Codex tasks">
@@ -186,10 +188,17 @@ source preset or TourBox Console's database. See
 Every press action except the fixed Short and Tour behaviors can be changed in
 **Settings → Control Mapping** without regenerating the TourBox preset.
 
-Control Mapping also exposes four newer Codex shortcuts that are not part of the
-default mapping: next task needing attention (`⌥⌘A`), copy task link (`⌥⌘L`),
-toggle bottom panel (`⌘J`), and open browser tab (`⌘T`). Chat search is bound to
-`F18` by the installer because Codex has no default shortcut for it.
+Control Mapping also exposes additional Codex shortcuts beyond the default
+mapping: next task needing attention (`⌥⌘A`), copy task link (`⌥⌘L`), toggle
+bottom panel (`⌘J`), open browser tab (`⌘T`), previous/next sidebar item
+(`⌥⌘[` / `⌥⌘]`), previous/next tab (`⇧⌘[` / `⇧⌘]`), toggle terminal (``⌃` ``),
+step workspace layout (`⇧⌘B`), show full view (`⇧⌘F`), open side chat (`⌥⌘S`),
+archive current chat (`⇧⌘A`), pin/unpin current chat (`⌥⌘P`), copy working
+directory (`⇧⌘C`), copy last code block (`⇧⌘;`), toggle voice mode (`⌃⇧V`),
+Spotlight search (`⌥K`), and screenshot to current chat (`⌃⇧4`). The installer
+manages `F13`–`F15` (Fast, Plan, Fork), `F18` (`searchChats`), `F19` / `F20`
+(`nextRecentThread` / `previousRecentThread`), and `⌃⇧D` (`globalDictationHold`)
+because Codex does not assign default keys to those commands.
 
 ## HUD and task slots
 

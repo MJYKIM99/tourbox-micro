@@ -29,15 +29,27 @@ public enum ConfigurationInstallerError: LocalizedError {
 public enum ConfigurationInstaller {
     public static let hookMarker = "127.0.0.1:50501/tourbox-hook/"
 
-    /// Managed bindings use character-free function keys so they never collide
-    /// with a Codex default or insert text into the composer.
+    /// Managed bindings use character-free function keys (and the dedicated
+    /// push-to-talk chord) so they never collide with a Codex default or insert
+    /// text into the composer.
     private static let managedKeybindings: [[String: String]] = [
         ["command": "composer.toggleFastMode", "key": "F13"],
         ["command": "composer.togglePlanMode", "key": "F14"],
         ["command": "forkThread", "key": "F15"],
         // The desktop app ships no default shortcut for chat search, so the
         // bridge owns one instead of pressing a key that Codex has reassigned.
-        ["command": "searchChats", "key": "F18"]
+        ["command": "searchChats", "key": "F18"],
+        // Codex 26.1103+ moved Ctrl+Tab / Ctrl+Shift+Tab to nextTab / previousTab
+        // and left nextRecentThread / previousRecentThread unbound by default.
+        ["command": "nextRecentThread", "key": "F19"],
+        ["command": "previousRecentThread", "key": "F20"],
+        // Codex 26.1103+ replaced composer.startDictation with globalDictationHold,
+        // which has no built-in default shortcut on macOS unless configured here.
+        ["command": "globalDictationHold", "key": "Ctrl+Shift+D"]
+    ]
+
+    private static let retiredCommands: Set<String> = [
+        "composer.startDictation"
     ]
 
     private static let manualReasoningKeybindings: [[String: String]] = [
@@ -122,16 +134,21 @@ public enum ConfigurationInstaller {
         }
 
         var changed = false
+        bindings.removeAll { binding in
+            guard let existingCommand = binding["command"] as? String else { return false }
+            return retiredCommands.contains(existingCommand)
+        }
         for managed in managedKeybindings {
             let command = managed["command"]!
             let key = managed["key"]!
             bindings.removeAll { binding in
-                guard let existingCommand = binding["command"] as? String,
-                      let existingKey = binding["key"] as? String else { return false }
+                guard let existingCommand = binding["command"] as? String else { return false }
+                let existingKey = binding["key"] as? String
                 if existingCommand == command && existingKey == key {
                     return true
                 }
-                return existingCommand == command || existingKey.caseInsensitiveCompare(key) == .orderedSame
+                return existingCommand == command
+                    || (existingKey?.caseInsensitiveCompare(key) == .orderedSame)
             }
             bindings.append(managed)
             changed = true
@@ -141,7 +158,7 @@ public enum ConfigurationInstaller {
         return .init(
             changed: changed,
             backupPath: backup?.path,
-            message: "Installed Fast, Plan, Fork, and Search bindings. Assign reasoning F16/F17 manually in Codex."
+            message: "Installed Fast, Plan, Fork, Search, Recent Chat, and Dictation bindings. Assign reasoning F16/F17 manually in Codex."
         )
     }
 
@@ -151,6 +168,17 @@ public enum ConfigurationInstaller {
 
     public static func searchKeybindingInstalled(at url: URL) -> Bool {
         containsKeybindings([["command": "searchChats", "key": "F18"]], at: url)
+    }
+
+    public static func recentChatKeybindingsInstalled(at url: URL) -> Bool {
+        containsKeybindings([
+            ["command": "nextRecentThread", "key": "F19"],
+            ["command": "previousRecentThread", "key": "F20"]
+        ], at: url)
+    }
+
+    public static func dictationKeybindingInstalled(at url: URL) -> Bool {
+        containsKeybindings([["command": "globalDictationHold", "key": "Ctrl+Shift+D"]], at: url)
     }
 
     public static func manualReasoningKeybindingsInstalled(at url: URL) -> Bool {

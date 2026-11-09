@@ -6,6 +6,7 @@ import TourBoxCore
 final class CodexController {
     private enum ShortcutDestination {
         case codex
+        case codexRunning
         case frontmostApplication
     }
 
@@ -48,7 +49,8 @@ final class CodexController {
         case .openModelPicker:
             shortcut(keyCode: 46, flags: [.maskControl, .maskShift])
         case .quickChat:
-            shortcut(keyCode: 45, flags: [.maskAlternate, .maskCommand])
+            // Codex 26.1103+ migrated `focusQuickChat` (⌥⌘N) to `openAvatarOverlay` ("Show Mini", ⌥Space).
+            shortcut(keyCode: 49, flags: [.maskAlternate], destination: .codexRunning)
         case .findInChat:
             shortcut(keyCode: 3, flags: [.maskCommand])
         case .openCommandMenu:
@@ -64,9 +66,13 @@ final class CodexController {
         case .screenshot:
             shortcut(keyCode: 19, flags: [.maskCommand, .maskShift], destination: .frontmostApplication)
         case .previousRecentChat:
-            shortcut(keyCode: 48, flags: [.maskControl, .maskShift])
+            // Codex 26.1103+ moved ⌃⇧Tab to `previousTab` and left `previousRecentThread` unbound by default;
+            // ConfigurationInstaller binds `previousRecentThread` to F20 (keyCode 90).
+            shortcut(keyCode: 90)
         case .nextRecentChat:
-            shortcut(keyCode: 48, flags: [.maskControl])
+            // Codex 26.1103+ moved ⌃Tab to `nextTab` and left `nextRecentThread` unbound by default;
+            // ConfigurationInstaller binds `nextRecentThread` to F19 (keyCode 80).
+            shortcut(keyCode: 80)
         case .nextNeedingAttention:
             shortcut(keyCode: 0, flags: [.maskAlternate, .maskCommand])
         case .adjustReasoning(let delta):
@@ -93,6 +99,36 @@ final class CodexController {
             shortcut(keyCode: 38, flags: [.maskCommand])
         case .openBrowserTab:
             shortcut(keyCode: 17, flags: [.maskCommand])
+        case .previousSidebarItem:
+            shortcut(keyCode: 33, flags: [.maskAlternate, .maskCommand])
+        case .nextSidebarItem:
+            shortcut(keyCode: 30, flags: [.maskAlternate, .maskCommand])
+        case .previousTab:
+            shortcut(keyCode: 33, flags: [.maskShift, .maskCommand])
+        case .nextTab:
+            shortcut(keyCode: 30, flags: [.maskShift, .maskCommand])
+        case .toggleTerminal:
+            shortcut(keyCode: 50, flags: [.maskControl])
+        case .stepWorkspaceLayout:
+            shortcut(keyCode: 11, flags: [.maskShift, .maskCommand])
+        case .showFullView:
+            shortcut(keyCode: 3, flags: [.maskShift, .maskCommand])
+        case .openSideChat:
+            shortcut(keyCode: 1, flags: [.maskAlternate, .maskCommand])
+        case .archiveChat:
+            shortcut(keyCode: 0, flags: [.maskShift, .maskCommand])
+        case .togglePinChat:
+            shortcut(keyCode: 35, flags: [.maskAlternate, .maskCommand])
+        case .copyWorkingDirectory:
+            shortcut(keyCode: 8, flags: [.maskShift, .maskCommand])
+        case .copyLastCodeBlock:
+            shortcut(keyCode: 41, flags: [.maskShift, .maskCommand])
+        case .toggleVoiceMode:
+            shortcut(keyCode: 9, flags: [.maskControl, .maskShift])
+        case .spotlightSearch:
+            shortcut(keyCode: 40, flags: [.maskAlternate], destination: .codexRunning)
+        case .screenshotToCurrentChat:
+            shortcut(keyCode: 21, flags: [.maskControl, .maskShift], destination: .codexRunning)
         case .previousChat, .nextChat, .openSlot, .toggleHUD:
             break
         }
@@ -126,7 +162,15 @@ final class CodexController {
         flags: CGEventFlags = [],
         destination: ShortcutDestination = .codex
     ) {
-        let delay = destination == .codex ? activationDelay() : 0
+        let delay: TimeInterval
+        switch destination {
+        case .codex:
+            delay = activationDelay()
+        case .codexRunning:
+            delay = ensureCodexRunningDelay()
+        case .frontmostApplication:
+            delay = 0
+        }
         DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
             self?.postKey(keyCode: keyCode, isDown: true, flags: flags)
             self?.postKey(keyCode: keyCode, isDown: false, flags: flags)
@@ -165,6 +209,14 @@ final class CodexController {
 
     private func activationDelay() -> TimeInterval {
         if NSWorkspace.shared.frontmostApplication?.bundleIdentifier == bundleIdentifier {
+            return 0
+        }
+        _ = activateCodex()
+        return 0.08
+    }
+
+    private func ensureCodexRunningDelay() -> TimeInterval {
+        if !NSRunningApplication.runningApplications(withBundleIdentifier: bundleIdentifier).isEmpty {
             return 0
         }
         _ = activateCodex()
